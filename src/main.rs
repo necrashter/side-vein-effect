@@ -7,8 +7,6 @@ use bevy::{
 // Defines the amount of time that should elapse between each physics step.
 const TIME_STEP: f32 = 1.0 / 144.0;
 
-const SCOREBOARD_FONT_SIZE: f32 = 40.0;
-const SCOREBOARD_TEXT_PADDING: Val = Val::Px(5.0);
 const B0_COLOR: Color = Color::rgb(61.0 / 255.0, 23.0 / 255.0, 102.0 / 255.0);
 const F0_COLOR: Color = Color::rgb(111.0 / 255.0, 26.0 / 255.0, 182.0 / 255.0);
 const F1_COLOR: Color = Color::rgb(1.0, 0.0, 50.0 / 255.0);
@@ -17,7 +15,7 @@ const TEXT_COLOR: Color = Color::rgb(1.0, 1.0, 1.0);
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
-        .insert_resource(Scoreboard { score: 0 })
+        .insert_resource(Scoreboard::default())
         .insert_resource(Boundaries::default())
         .insert_resource(ClearColor(B0_COLOR))
         .add_startup_system(setup)
@@ -42,10 +40,26 @@ struct Player;
 #[derive(Component)]
 struct Cell;
 
-// This resource tracks the game's score
+/// Tracks score, player health, etc.
 #[derive(Resource)]
 struct Scoreboard {
     score: usize,
+    player_hp: usize,
+}
+
+impl Default for Scoreboard {
+    fn default() -> Self {
+        Self {
+            score: 0,
+            player_hp: 100,
+        }
+    }
+}
+
+#[derive(Component)]
+enum ScoreboardText {
+    Score,
+    PlayerHp,
 }
 
 #[derive(Component)]
@@ -153,33 +167,63 @@ fn setup(
         Player,
     ));
 
-    // Scoreboard
-    commands.spawn(
-        TextBundle::from_sections([
-            TextSection::new(
-                "Score: ",
+    commands
+        .spawn(NodeBundle {
+            style: Style {
+                // fill the entire window
+                size: Size::all(Val::Percent(100.)),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Start,
+                padding: UiRect {
+                    left: Val::Px(8.0),
+                    top: Val::Px(8.0),
+                    right: Val::Px(8.0),
+                    bottom: Val::Px(8.0),
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .with_children(|builder| {
+            builder.spawn(TextBundle::from_section(
+                "Nanomachine Health",
                 TextStyle {
                     font: asset_server.load("fonts/Kanit-Regular.ttf"),
-                    font_size: SCOREBOARD_FONT_SIZE,
+                    font_size: 32.0,
                     color: TEXT_COLOR,
                 },
-            ),
-            TextSection::from_style(TextStyle {
-                font: asset_server.load("fonts/Kanit-Regular.ttf"),
-                font_size: SCOREBOARD_FONT_SIZE,
-                color: TEXT_COLOR,
-            }),
-        ])
-        .with_style(Style {
-            position_type: PositionType::Absolute,
-            position: UiRect {
-                top: SCOREBOARD_TEXT_PADDING,
-                left: SCOREBOARD_TEXT_PADDING,
-                ..default()
-            },
-            ..default()
-        }),
-    );
+            ));
+            builder.spawn((
+                TextBundle::from_section(
+                    "100",
+                    TextStyle {
+                        font: asset_server.load("fonts/Kanit-Regular.ttf"),
+                        font_size: 64.0,
+                        color: TEXT_COLOR,
+                    },
+                ),
+                ScoreboardText::PlayerHp,
+            ));
+            builder.spawn(TextBundle::from_section(
+                "Score",
+                TextStyle {
+                    font: asset_server.load("fonts/Kanit-Regular.ttf"),
+                    font_size: 32.0,
+                    color: TEXT_COLOR,
+                },
+            ));
+            builder.spawn((
+                TextBundle::from_section(
+                    "0",
+                    TextStyle {
+                        font: asset_server.load("fonts/Kanit-Regular.ttf"),
+                        font_size: 64.0,
+                        color: TEXT_COLOR,
+                    },
+                ),
+                ScoreboardText::Score,
+            ));
+        });
 }
 
 fn wall_system(boundaries: Res<Boundaries>, mut query: Query<(&mut Transform, &Wall)>) {
@@ -233,9 +277,13 @@ fn player_movement(
     }
 }
 
-fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<&mut Text>) {
-    let mut text = query.single_mut();
-    text.sections[1].value = scoreboard.score.to_string();
+fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<(&mut Text, &ScoreboardText)>) {
+    for (mut text, text_type) in &mut query {
+        text.sections[0].value = match text_type {
+            ScoreboardText::Score => scoreboard.score.to_string(),
+            ScoreboardText::PlayerHp => scoreboard.player_hp.to_string(),
+        }
+    }
 }
 
 /// Player-Cell collisions.
@@ -260,6 +308,7 @@ fn player_collisions(
             // collision_events.send_default();
 
             scoreboard.score += 1;
+            scoreboard.player_hp -= 1;
             commands.entity(collider_entity).despawn();
         }
     }
