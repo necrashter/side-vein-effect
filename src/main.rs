@@ -48,6 +48,9 @@ enum GameState {
 struct Player;
 
 #[derive(Component)]
+struct TopText;
+
+#[derive(Component)]
 enum Cell {
     /// This is a cell belonging to the patient's body.
     Body {
@@ -256,6 +259,29 @@ fn setup(
                 ScoreboardText::PatientHp,
             ));
         });
+
+    commands
+        .spawn(NodeBundle {
+            style: Style {
+                position_type: PositionType::Absolute,
+                // fill the entire window
+                size: Size::all(Val::Percent(100.)),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                // align_self: AlignSelf::Center,
+                padding: UiRect {
+                    left: Val::Px(8.0),
+                    top: Val::Px(8.0),
+                    right: Val::Px(8.0),
+                    bottom: Val::Px(8.0),
+                },
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .with_children(|builder| {
+            builder.spawn((TextBundle::from_section("", number_style.clone()), TopText));
+        });
 }
 
 fn wall_system(boundaries: Res<Boundaries>, mut query: Query<(&mut Transform, &Wall)>) {
@@ -326,6 +352,7 @@ fn player_collisions(
     mut scoreboard: ResMut<Scoreboard>,
     mut player_query: Query<&Transform, With<Player>>,
     cell_query: Query<(Entity, &Transform, &Cell)>,
+    mut top_text_query: Query<&mut Text, With<TopText>>,
 ) {
     let player_transform = player_query.single_mut();
     let player_size = player_transform.scale.y;
@@ -347,8 +374,9 @@ fn player_collisions(
                     scoreboard.player_hp += player_hp;
                     scoreboard.player_hp = scoreboard.player_hp.min(100);
                     scoreboard.patient_hp -= patient_hp;
-                    if scoreboard.patient_hp < 0 {
-                        println!("Game over!");
+                    if scoreboard.patient_hp <= 0 {
+                        let mut top_text = top_text_query.single_mut();
+                        top_text.sections[0].value = "GAME OVER".to_owned();
                         next_state.set(GameState::Ended);
                     }
                 }
