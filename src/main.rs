@@ -15,24 +15,33 @@ const TEXT_COLOR: Color = Color::rgb(1.0, 1.0, 1.0);
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
+        .add_state::<GameState>()
         .insert_resource(Scoreboard::default())
         .insert_resource(Boundaries::default())
         .insert_resource(ClearColor(B0_COLOR))
+        .insert_resource(FixedTime::new_from_secs(TIME_STEP))
         .add_startup_system(setup)
         .add_systems(
             (
-                spawner_system,
-                wall_system,
-                physics_objects,
-                cell_despawner,
-                player_collisions,
-                player_movement,
+                spawner_system.run_if(in_state(GameState::Running)),
+                wall_system.run_if(in_state(GameState::Running)),
+                physics_objects.run_if(in_state(GameState::Running)),
+                cell_despawner.run_if(in_state(GameState::Running)),
+                player_collisions.run_if(in_state(GameState::Running)),
+                player_movement.run_if(in_state(GameState::Running)),
             )
                 .in_schedule(CoreSchedule::FixedUpdate),
         )
-        .insert_resource(FixedTime::new_from_secs(TIME_STEP))
         .add_system(update_scoreboard)
         .run();
+}
+
+#[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
+enum GameState {
+    #[default]
+    Running,
+    Paused,
+    Ended,
 }
 
 #[derive(Component)]
@@ -312,6 +321,7 @@ fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<(&mut Text, &
 
 /// Player-Cell collisions.
 fn player_collisions(
+    mut next_state: ResMut<NextState<GameState>>,
     mut commands: Commands,
     mut scoreboard: ResMut<Scoreboard>,
     mut player_query: Query<&Transform, With<Player>>,
@@ -338,7 +348,8 @@ fn player_collisions(
                     scoreboard.player_hp = scoreboard.player_hp.min(100);
                     scoreboard.patient_hp -= patient_hp;
                     if scoreboard.patient_hp < 0 {
-                        println!("Game over");
+                        println!("Game over!");
+                        next_state.set(GameState::Ended);
                     }
                 }
             }
