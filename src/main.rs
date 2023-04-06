@@ -1,4 +1,8 @@
-use bevy::{math::{vec3, vec2}, prelude::*, sprite::MaterialMesh2dBundle};
+use bevy::{
+    math::{vec2, vec3},
+    prelude::*,
+    sprite::MaterialMesh2dBundle,
+};
 
 // Defines the amount of time that should elapse between each physics step.
 const TIME_STEP: f32 = 1.0 / 144.0;
@@ -100,8 +104,8 @@ fn setup(
                 ..default()
             },
             Physics {
-                velocity: vec2(0.0, 0.0),
-                acceleration: vec2(i as f32 * 50.0, -100.0),
+                velocity: vec2(i as f32 * 50.0, -100.0),
+                acceleration: vec2(0.0, 0.0),
             },
             Cell,
         ));
@@ -141,6 +145,10 @@ fn setup(
             transform: Transform::from_translation(Vec3::new(0.0, 0.0, 0.0))
                 .with_scale(Vec3::new(30.0, 30.0, 0.0)),
             ..default()
+        },
+        Physics {
+            velocity: Vec2::ZERO,
+            acceleration: Vec2::ZERO,
         },
         Player,
     ));
@@ -187,35 +195,42 @@ fn wall_system(boundaries: Res<Boundaries>, mut query: Query<(&mut Transform, &W
 fn player_movement(
     keyboard_input: Res<Input<KeyCode>>,
     boundaries: Res<Boundaries>,
-    mut query: Query<&mut Transform, With<Player>>,
+    mut query: Query<(&mut Transform, &mut Physics), With<Player>>,
 ) {
-    let mut transform = query.single_mut();
-    let mut dx = 0.0;
-    let mut dy = 0.0;
+    let (mut transform, mut physics) = query.single_mut();
+    let mut acceleration = Vec2::ZERO;
 
-    if keyboard_input.pressed(KeyCode::A) {
-        dx -= 1.0;
+    if keyboard_input.pressed(KeyCode::Left) {
+        acceleration.x -= 1.0;
     }
-    if keyboard_input.pressed(KeyCode::D) {
-        dx += 1.0;
+    if keyboard_input.pressed(KeyCode::Right) {
+        acceleration.x += 1.0;
     }
-    if keyboard_input.pressed(KeyCode::W) {
-        dy += 1.0;
+    if keyboard_input.pressed(KeyCode::Up) {
+        acceleration.y += 1.0;
     }
-    if keyboard_input.pressed(KeyCode::S) {
-        dy -= 1.0;
+    if keyboard_input.pressed(KeyCode::Down) {
+        acceleration.y -= 1.0;
     }
+    acceleration = acceleration.normalize_or_zero();
+    acceleration.x *= 500.0;
+    acceleration.y *= 500.0;
+
+    physics.acceleration = acceleration;
 
     let radius = transform.scale.x / 2.0;
-    let left_bound = boundaries.left_wall + radius;
-    let right_bound = boundaries.right_wall - radius;
     let top_bound = boundaries.top - radius;
     let bottom_bound = boundaries.bottom + radius;
 
-    transform.translation.x += dx * 500.0 * TIME_STEP;
-    transform.translation.x = transform.translation.x.clamp(left_bound, right_bound);
-    transform.translation.y += dy * 500.0 * TIME_STEP;
-    transform.translation.y = transform.translation.y.clamp(bottom_bound, top_bound);
+    if transform.translation.y < bottom_bound {
+        transform.translation.y = bottom_bound;
+        physics.acceleration.y = physics.acceleration.y.max(0.0);
+        physics.velocity.y = physics.velocity.y.max(0.0);
+    } else if transform.translation.y > top_bound {
+        transform.translation.y = top_bound;
+        physics.acceleration.y = physics.acceleration.y.min(0.0);
+        physics.velocity.y = physics.velocity.y.min(0.0);
+    }
 }
 
 fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<&mut Text>) {
