@@ -30,6 +30,7 @@ fn main() {
                 cell_despawner.run_if(in_state(GameState::Running)),
                 player_collisions.run_if(in_state(GameState::Running)),
                 player_movement.run_if(in_state(GameState::Running)),
+                game_over_check.run_if(in_state(GameState::Running)),
             )
                 .in_schedule(CoreSchedule::FixedUpdate),
         )
@@ -324,8 +325,8 @@ fn player_movement(
         acceleration.y -= 1.0;
     }
     acceleration = acceleration.normalize_or_zero();
-    acceleration.x *= 500.0;
-    acceleration.y *= 500.0;
+    acceleration.x *= 1000.0;
+    acceleration.y *= 1000.0;
 
     physics.acceleration = acceleration;
 
@@ -356,12 +357,10 @@ fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<(&mut Text, &
 
 /// Player-Cell collisions.
 fn player_collisions(
-    mut next_state: ResMut<NextState<GameState>>,
     mut commands: Commands,
     mut scoreboard: ResMut<Scoreboard>,
     mut player_query: Query<&Transform, With<Player>>,
     cell_query: Query<(Entity, &Transform, &Cell)>,
-    mut top_text_query: Query<&mut Text, With<TopText>>,
 ) {
     let player_transform = player_query.single_mut();
     let player_size = player_transform.scale.y;
@@ -383,22 +382,24 @@ fn player_collisions(
                     scoreboard.player_hp += player_hp;
                     scoreboard.player_hp = scoreboard.player_hp.min(100);
                     scoreboard.patient_hp -= patient_hp;
-                    if scoreboard.patient_hp <= 0 {
-                        let mut top_text = top_text_query.single_mut();
-                        top_text.sections[0].value = "GAME OVER".to_owned();
-                        next_state.set(GameState::Ended);
-                    }
                 }
                 Cell::Germ { damage } => {
                     scoreboard.player_hp -= damage;
-                    if scoreboard.player_hp <= 0 {
-                        let mut top_text = top_text_query.single_mut();
-                        top_text.sections[0].value = "GAME OVER".to_owned();
-                        next_state.set(GameState::Ended);
-                    }
                 }
             }
         }
+    }
+}
+
+fn game_over_check(
+    scoreboard: Res<Scoreboard>,
+    mut top_text_query: Query<&mut Text, With<TopText>>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if scoreboard.patient_hp <= 0 || scoreboard.player_hp <= 0 {
+        let mut top_text = top_text_query.single_mut();
+        top_text.sections[0].value = "GAME OVER".to_owned();
+        next_state.set(GameState::Ended);
     }
 }
 
@@ -426,8 +427,6 @@ fn cell_despawner(
     boundaries: Res<Boundaries>,
     query: Query<(Entity, &Transform, &Cell)>,
     mut scoreboard: ResMut<Scoreboard>,
-    mut top_text_query: Query<&mut Text, With<TopText>>,
-    mut next_state: ResMut<NextState<GameState>>,
 ) {
     for (entity, transform, cell) in &query {
         let radius = transform.scale.x / 2.0;
@@ -435,11 +434,6 @@ fn cell_despawner(
             commands.entity(entity).despawn();
             if let Cell::Germ { damage } = cell {
                 scoreboard.patient_hp -= damage;
-                if scoreboard.patient_hp <= 0 {
-                    let mut top_text = top_text_query.single_mut();
-                    top_text.sections[0].value = "GAME OVER".to_owned();
-                    next_state.set(GameState::Ended);
-                }
             }
         }
     }
