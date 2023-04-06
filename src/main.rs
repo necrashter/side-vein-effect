@@ -149,7 +149,7 @@ fn setup(
     let germ_color = materials.add(ColorMaterial::from(GERM_COLOR));
 
     commands.insert_resource(Spawner {
-        timer: Timer::from_seconds(1.0, TimerMode::Repeating),
+        timer: Timer::from_seconds(2.5, TimerMode::Repeating),
         circle_mesh,
         body_color,
         germ_color,
@@ -325,8 +325,8 @@ fn player_movement(
         acceleration.y -= 1.0;
     }
     acceleration = acceleration.normalize_or_zero();
-    acceleration.x *= 1000.0;
-    acceleration.y *= 1000.0;
+    acceleration.x *= 700.0;
+    acceleration.y *= 700.0;
 
     physics.acceleration = acceleration;
 
@@ -385,6 +385,7 @@ fn player_collisions(
                 }
                 Cell::Germ { damage } => {
                     scoreboard.player_hp -= damage;
+                    scoreboard.score += 1;
                 }
             }
         }
@@ -433,7 +434,8 @@ fn cell_despawner(
         if transform.translation.y + radius < boundaries.bottom {
             commands.entity(entity).despawn();
             if let Cell::Germ { damage } = cell {
-                scoreboard.patient_hp -= damage;
+                // Germs do double damage to host
+                scoreboard.patient_hp -= damage * 2;
             }
         }
     }
@@ -455,8 +457,8 @@ fn spawner_system(
             let (cell, material) = if rand::random::<bool>() {
                 (
                     Cell::Body {
-                        patient_hp: 10,
-                        player_hp: 5,
+                        patient_hp: 5,
+                        player_hp: 10,
                     },
                     spawner.body_color.clone(),
                 )
@@ -476,7 +478,7 @@ fn spawner_system(
                     ..default()
                 },
                 Physics {
-                    velocity: vec2(0.0, -300.0),
+                    velocity: vec2(0.0, -200.0),
                     acceleration: vec2(0.0, 0.0),
                     elasticity: 0.9,
                 },
