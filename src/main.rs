@@ -1,7 +1,7 @@
 use bevy::{
     math::{vec2, vec3},
     prelude::*,
-    sprite::MaterialMesh2dBundle,
+    sprite::{MaterialMesh2dBundle, Mesh2dHandle},
 };
 
 // Defines the amount of time that should elapse between each physics step.
@@ -21,6 +21,7 @@ fn main() {
         .add_startup_system(setup)
         .add_systems(
             (
+                spawner_system,
                 wall_system,
                 physics_objects,
                 cell_despawner,
@@ -72,6 +73,13 @@ struct Physics {
 }
 
 #[derive(Resource)]
+struct Spawner {
+    timer: Timer,
+    circle_mesh: Mesh2dHandle,
+    enemy_color: Handle<ColorMaterial>,
+}
+
+#[derive(Resource)]
 struct Boundaries {
     left_wall: f32,
     right_wall: f32,
@@ -107,26 +115,14 @@ fn setup(
     // Camera
     commands.spawn(Camera2dBundle::default());
 
-    for i in 0..20 {
-        commands.spawn((
-            MaterialMesh2dBundle {
-                mesh: meshes.add(shape::Circle::default().into()).into(),
-                material: materials.add(ColorMaterial::from(F0_COLOR)),
-                transform: Transform::from_translation(Vec3::new(
-                    i as f32 * 90.0 - 640.0,
-                    300.0 + 45.0 * i as f32,
-                    1.0,
-                ))
-                .with_scale(Vec3::new(90.0, 90.0, 0.0)),
-                ..default()
-            },
-            Physics {
-                velocity: vec2(i as f32 * 50.0, -100.0),
-                acceleration: vec2(0.0, 0.0),
-            },
-            Cell,
-        ));
-    }
+    let circle_mesh: Mesh2dHandle = meshes.add(shape::Circle::default().into()).into();
+    let enemy_color = materials.add(ColorMaterial::from(F0_COLOR));
+
+    commands.insert_resource(Spawner {
+        timer: Timer::from_seconds(1.0, TimerMode::Repeating),
+        circle_mesh,
+        enemy_color,
+    });
 
     for i in 0..2 {
         let on_right = i > 0;
@@ -360,6 +356,31 @@ fn cell_despawner(
         let radius = transform.scale.x / 2.0;
         if transform.translation.y + radius < boundaries.bottom {
             commands.entity(entity).despawn();
+        }
+    }
+}
+
+fn spawner_system(mut commands: Commands, time: Res<Time>, mut spawner: ResMut<Spawner>) {
+    if spawner.timer.tick(time.delta()).just_finished() {
+        for i in 0..2 {
+            commands.spawn((
+                MaterialMesh2dBundle {
+                    mesh: spawner.circle_mesh.clone(),
+                    material: spawner.enemy_color.clone(),
+                    transform: Transform::from_translation(Vec3::new(
+                        i as f32 * 90.0 - 640.0,
+                        300.0 + 45.0 * i as f32,
+                        1.0,
+                    ))
+                    .with_scale(Vec3::new(90.0, 90.0, 0.0)),
+                    ..default()
+                },
+                Physics {
+                    velocity: vec2(i as f32 * 50.0, -100.0),
+                    acceleration: vec2(0.0, 0.0),
+                },
+                Cell,
+            ));
         }
     }
 }
