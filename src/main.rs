@@ -21,6 +21,7 @@ fn main() {
             (
                 wall_system,
                 physics_objects,
+                cell_despawner,
                 player_collisions,
                 player_movement,
             )
@@ -92,7 +93,7 @@ fn setup(
                 material: materials.add(ColorMaterial::from(F0_COLOR)),
                 transform: Transform::from_translation(Vec3::new(
                     i as f32 * 90.0 - 640.0,
-                    300.0,
+                    300.0 + 45.0 * i as f32,
                     1.0,
                 ))
                 .with_scale(Vec3::new(90.0, 90.0, 0.0)),
@@ -264,6 +265,19 @@ fn physics_objects(boundaries: Res<Boundaries>, mut query: Query<(&mut Transform
         } else if transform.translation.x + radius > boundaries.right_wall {
             transform.translation.x = boundaries.right_wall - radius;
             physics.velocity.x *= -1.0;
+        }
+    }
+}
+
+fn cell_despawner(
+    mut commands: Commands,
+    boundaries: Res<Boundaries>,
+    query: Query<(Entity, &Transform), With<Cell>>,
+) {
+    for (entity, transform) in &query {
+        let radius = transform.scale.x / 2.0;
+        if transform.translation.y + radius < boundaries.bottom {
+            commands.entity(entity).despawn();
         }
     }
 }
