@@ -47,6 +47,8 @@ struct Scoreboard {
 struct Boundaries {
     left_wall: f32,
     right_wall: f32,
+    top: f32,
+    bottom: f32,
 }
 
 #[derive(Component)]
@@ -60,6 +62,8 @@ impl Default for Boundaries {
         Boundaries {
             left_wall: 0.0,
             right_wall: 0.0,
+            top: 360.0,
+            bottom: -360.0,
         }
     }
 }
@@ -191,12 +195,16 @@ fn player_movement(
         dy -= 1.0;
     }
 
-    let left_bound = boundaries.left_wall + transform.scale.x / 2.0;
-    let right_bound = boundaries.right_wall - transform.scale.x / 2.0;
+    let radius = transform.scale.x / 2.0;
+    let left_bound = boundaries.left_wall + radius;
+    let right_bound = boundaries.right_wall - radius;
+    let top_bound = boundaries.top - radius;
+    let bottom_bound = boundaries.bottom + radius;
 
     transform.translation.x += dx * 500.0 * TIME_STEP;
     transform.translation.x = transform.translation.x.clamp(left_bound, right_bound);
     transform.translation.y += dy * 500.0 * TIME_STEP;
+    transform.translation.y = transform.translation.y.clamp(bottom_bound, top_bound);
 }
 
 fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<&mut Text>) {
