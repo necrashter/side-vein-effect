@@ -1,13 +1,14 @@
-use bevy::{prelude::*, sprite::MaterialMesh2dBundle, math::vec3};
+use bevy::{math::vec3, prelude::*, sprite::MaterialMesh2dBundle};
 
 // Defines the amount of time that should elapse between each physics step.
 const TIME_STEP: f32 = 1.0 / 144.0;
 
 const SCOREBOARD_FONT_SIZE: f32 = 40.0;
 const SCOREBOARD_TEXT_PADDING: Val = Val::Px(5.0);
-const B0_COLOR: Color = Color::rgb( 61.0 / 255.0, 23.0 / 255.0, 102.0 / 255.0);
+const B0_COLOR: Color = Color::rgb(61.0 / 255.0, 23.0 / 255.0, 102.0 / 255.0);
 const F0_COLOR: Color = Color::rgb(111.0 / 255.0, 26.0 / 255.0, 182.0 / 255.0);
-const F1_COLOR: Color = Color::rgb(255.0 / 255.0, 0.0 / 255.0, 50.0 / 255.0);
+const F1_COLOR: Color = Color::rgb(1.0, 0.0, 50.0 / 255.0);
+const TEXT_COLOR: Color = Color::rgb(1.0, 1.0, 1.0);
 
 fn main() {
     App::new()
@@ -16,7 +17,15 @@ fn main() {
         .insert_resource(Boundaries::default())
         .insert_resource(ClearColor(B0_COLOR))
         .add_startup_system(setup)
-        .add_systems((wall_system, check_collisions, player_movement).in_schedule(CoreSchedule::FixedUpdate))
+        .add_systems(
+            (
+                wall_system,
+                cell_collisions,
+                player_collisions,
+                player_movement,
+            )
+                .in_schedule(CoreSchedule::FixedUpdate),
+        )
         .insert_resource(FixedTime::new_from_secs(TIME_STEP))
         .add_system(update_scoreboard)
         .run();
@@ -24,9 +33,6 @@ fn main() {
 
 #[derive(Component)]
 struct Player;
-
-#[derive(Component)]
-struct Collider;
 
 #[derive(Component)]
 struct Cell;
@@ -51,7 +57,10 @@ struct Wall {
 
 impl Default for Boundaries {
     fn default() -> Self {
-        Boundaries { left_wall: 0.0, right_wall: 0.0 }
+        Boundaries {
+            left_wall: 0.0,
+            right_wall: 0.0,
+        }
     }
 }
 
@@ -87,10 +96,10 @@ fn setup(
         let on_right = i > 0;
         let x_mul: f32 = if on_right { 1.0 } else { -1.0 };
         let transform = Transform {
-                        translation: vec3(x_mul * 640.0, 0.0, 0.0),
-                        scale: vec3(640.0, 720.0, 1.0),
-                        ..default()
-                    };
+            translation: vec3(x_mul * 640.0, 0.0, 0.0),
+            scale: vec3(640.0, 720.0, 1.0),
+            ..default()
+        };
         if on_right {
             boundaries.right_wall = transform.translation.x - (transform.scale.x / 2.0);
         } else {
@@ -98,16 +107,16 @@ fn setup(
         }
         let offset = transform.scale.x / 2.0 * x_mul;
         commands.spawn((
-                SpriteBundle {
-                    transform,
-                    sprite: Sprite {
-                        color: F0_COLOR,
-                        ..default()
-                    },
+            SpriteBundle {
+                transform,
+                sprite: Sprite {
+                    color: F0_COLOR,
                     ..default()
                 },
-                Wall { on_right, offset },
-                ));
+                ..default()
+            },
+            Wall { on_right, offset },
+        ));
     }
 
     commands.spawn((
@@ -119,7 +128,6 @@ fn setup(
             ..default()
         },
         Player,
-        Collider,
     ));
 
     // Scoreboard
@@ -130,13 +138,13 @@ fn setup(
                 TextStyle {
                     font: asset_server.load("fonts/Kanit-Regular.ttf"),
                     font_size: SCOREBOARD_FONT_SIZE,
-                    color: F0_COLOR,
+                    color: TEXT_COLOR,
                 },
             ),
             TextSection::from_style(TextStyle {
                 font: asset_server.load("fonts/Kanit-Regular.ttf"),
                 font_size: SCOREBOARD_FONT_SIZE,
-                color: F1_COLOR,
+                color: TEXT_COLOR,
             }),
         ])
         .with_style(Style {
@@ -183,7 +191,6 @@ fn player_movement(
         dy -= 1.0;
     }
 
-    
     let left_bound = boundaries.left_wall + transform.scale.x / 2.0;
     let right_bound = boundaries.right_wall - transform.scale.x / 2.0;
 
@@ -197,7 +204,8 @@ fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<&mut Text>) {
     text.sections[1].value = scoreboard.score.to_string();
 }
 
-fn check_collisions(
+/// Player-Cell collisions.
+fn player_collisions(
     mut commands: Commands,
     mut scoreboard: ResMut<Scoreboard>,
     mut player_query: Query<&Transform, With<Player>>,
@@ -217,9 +225,20 @@ fn check_collisions(
             // Sends a collision event so that other systems can react to the collision
             // collision_events.send_default();
 
-            // Bricks should be despawned and increment the scoreboard on collision
             scoreboard.score += 1;
             commands.entity(collider_entity).despawn();
+        }
+    }
+}
+
+/// Cell boundary collisions.
+fn cell_collisions(boundaries: Res<Boundaries>, mut cell_query: Query<(&mut Transform, &Cell)>) {
+    for (mut transform, _) in &mut cell_query {
+        let radius = transform.scale.x / 2.0;
+        if transform.translation.x - radius < boundaries.left_wall {
+            transform.translation.x = boundaries.left_wall + radius;
+        } else if transform.translation.x + radius > boundaries.right_wall {
+            transform.translation.x = boundaries.right_wall - radius;
         }
     }
 }
