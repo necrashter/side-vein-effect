@@ -1,27 +1,24 @@
-use bevy::{prelude::*, sprite::MaterialMesh2dBundle};
+use bevy::{prelude::*, sprite::MaterialMesh2dBundle, math::vec3};
 
 // Defines the amount of time that should elapse between each physics step.
 const TIME_STEP: f32 = 1.0 / 144.0;
 
 const SCOREBOARD_FONT_SIZE: f32 = 40.0;
 const SCOREBOARD_TEXT_PADDING: Val = Val::Px(5.0);
-const TEXT_COLOR: Color = Color::rgb(111.0 / 255.0, 26.0 / 255.0, 182.0 / 255.0);
-const SCORE_COLOR: Color = Color::rgb(255.0 / 255.0, 0.0 / 255.0, 50.0 / 255.0);
+const B0_COLOR: Color = Color::rgb( 61.0 / 255.0, 23.0 / 255.0, 102.0 / 255.0);
+const F0_COLOR: Color = Color::rgb(111.0 / 255.0, 26.0 / 255.0, 182.0 / 255.0);
+const F1_COLOR: Color = Color::rgb(255.0 / 255.0, 0.0 / 255.0, 50.0 / 255.0);
 
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .insert_resource(Scoreboard { score: 0 })
-        .insert_resource(ClearColor(Color::rgb(
-            61.0 / 255.0,
-            23.0 / 255.0,
-            102.0 / 255.0,
-        )))
+        .insert_resource(Boundaries::default())
+        .insert_resource(ClearColor(B0_COLOR))
         .add_startup_system(setup)
-        .add_systems((check_collisions, player_movement).in_schedule(CoreSchedule::FixedUpdate))
-        .add_system(update_scoreboard)
-        // Configure how frequently our gameplay systems are run
+        .add_systems((wall_system, check_collisions, player_movement).in_schedule(CoreSchedule::FixedUpdate))
         .insert_resource(FixedTime::new_from_secs(TIME_STEP))
+        .add_system(update_scoreboard)
         .run();
 }
 
@@ -40,9 +37,28 @@ struct Scoreboard {
     score: usize,
 }
 
+#[derive(Resource)]
+struct Boundaries {
+    left_wall: f32,
+    right_wall: f32,
+}
+
+#[derive(Component)]
+struct Wall {
+    on_right: bool,
+    offset: f32,
+}
+
+impl Default for Boundaries {
+    fn default() -> Self {
+        Boundaries { left_wall: 0.0, right_wall: 0.0 }
+    }
+}
+
 // Add the game's entities to our world
 fn setup(
     mut commands: Commands,
+    mut boundaries: ResMut<Boundaries>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     asset_server: Res<AssetServer>,
@@ -54,7 +70,7 @@ fn setup(
         commands.spawn((
             MaterialMesh2dBundle {
                 mesh: meshes.add(shape::Circle::default().into()).into(),
-                material: materials.add(ColorMaterial::from(TEXT_COLOR)),
+                material: materials.add(ColorMaterial::from(F0_COLOR)),
                 transform: Transform::from_translation(Vec3::new(
                     i as f32 * 90.0 - 640.0,
                     60.0,
@@ -67,10 +83,37 @@ fn setup(
         ));
     }
 
+    for i in 0..2 {
+        let on_right = i > 0;
+        let x_mul: f32 = if on_right { 1.0 } else { -1.0 };
+        let transform = Transform {
+                        translation: vec3(x_mul * 640.0, 0.0, 0.0),
+                        scale: vec3(640.0, 720.0, 1.0),
+                        ..default()
+                    };
+        if on_right {
+            boundaries.right_wall = transform.translation.x - (transform.scale.x / 2.0);
+        } else {
+            boundaries.left_wall = transform.translation.x + (transform.scale.x / 2.0);
+        }
+        let offset = transform.scale.x / 2.0 * x_mul;
+        commands.spawn((
+                SpriteBundle {
+                    transform,
+                    sprite: Sprite {
+                        color: F0_COLOR,
+                        ..default()
+                    },
+                    ..default()
+                },
+                Wall { on_right, offset },
+                ));
+    }
+
     commands.spawn((
         MaterialMesh2dBundle {
             mesh: meshes.add(shape::Circle::default().into()).into(),
-            material: materials.add(ColorMaterial::from(SCORE_COLOR)),
+            material: materials.add(ColorMaterial::from(F1_COLOR)),
             transform: Transform::from_translation(Vec3::new(0.0, 0.0, 0.0))
                 .with_scale(Vec3::new(30.0, 30.0, 0.0)),
             ..default()
@@ -87,13 +130,13 @@ fn setup(
                 TextStyle {
                     font: asset_server.load("fonts/Kanit-Regular.ttf"),
                     font_size: SCOREBOARD_FONT_SIZE,
-                    color: TEXT_COLOR,
+                    color: F0_COLOR,
                 },
             ),
             TextSection::from_style(TextStyle {
                 font: asset_server.load("fonts/Kanit-Regular.ttf"),
                 font_size: SCOREBOARD_FONT_SIZE,
-                color: SCORE_COLOR,
+                color: F1_COLOR,
             }),
         ])
         .with_style(Style {
@@ -108,8 +151,19 @@ fn setup(
     );
 }
 
+fn wall_system(boundaries: Res<Boundaries>, mut query: Query<(&mut Transform, &Wall)>) {
+    for (mut transform, wall) in &mut query {
+        if wall.on_right {
+            transform.translation.x = boundaries.right_wall + wall.offset;
+        } else {
+            transform.translation.x = boundaries.left_wall + wall.offset;
+        }
+    }
+}
+
 fn player_movement(
     keyboard_input: Res<Input<KeyCode>>,
+    boundaries: Res<Boundaries>,
     mut query: Query<&mut Transform, With<Player>>,
 ) {
     let mut transform = query.single_mut();
@@ -129,7 +183,12 @@ fn player_movement(
         dy -= 1.0;
     }
 
+    
+    let left_bound = boundaries.left_wall + transform.scale.x / 2.0;
+    let right_bound = boundaries.right_wall - transform.scale.x / 2.0;
+
     transform.translation.x += dx * 500.0 * TIME_STEP;
+    transform.translation.x = transform.translation.x.clamp(left_bound, right_bound);
     transform.translation.y += dy * 500.0 * TIME_STEP;
 }
 
