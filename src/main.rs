@@ -45,6 +45,7 @@ struct Cell;
 struct Scoreboard {
     score: usize,
     player_hp: usize,
+    patient_hp: usize,
 }
 
 impl Default for Scoreboard {
@@ -52,6 +53,7 @@ impl Default for Scoreboard {
         Self {
             score: 0,
             player_hp: 100,
+            patient_hp: 100,
         }
     }
 }
@@ -60,6 +62,7 @@ impl Default for Scoreboard {
 enum ScoreboardText {
     Score,
     PlayerHp,
+    PatientHp,
 }
 
 #[derive(Component)]
@@ -167,6 +170,17 @@ fn setup(
         Player,
     ));
 
+    let label_style = TextStyle {
+        font: asset_server.load("fonts/Kanit-Regular.ttf"),
+        font_size: 32.0,
+        color: TEXT_COLOR,
+    };
+    let number_style = TextStyle {
+        font: asset_server.load("fonts/Kanit-Regular.ttf"),
+        font_size: 64.0,
+        color: TEXT_COLOR,
+    };
+
     commands
         .spawn(NodeBundle {
             style: Style {
@@ -187,41 +201,44 @@ fn setup(
         .with_children(|builder| {
             builder.spawn(TextBundle::from_section(
                 "Nanomachine Health",
-                TextStyle {
-                    font: asset_server.load("fonts/Kanit-Regular.ttf"),
-                    font_size: 32.0,
-                    color: TEXT_COLOR,
-                },
+                label_style.clone(),
             ));
             builder.spawn((
-                TextBundle::from_section(
-                    "100",
-                    TextStyle {
-                        font: asset_server.load("fonts/Kanit-Regular.ttf"),
-                        font_size: 64.0,
-                        color: TEXT_COLOR,
-                    },
-                ),
+                TextBundle::from_section("100", number_style.clone()),
                 ScoreboardText::PlayerHp,
             ));
-            builder.spawn(TextBundle::from_section(
-                "Score",
-                TextStyle {
-                    font: asset_server.load("fonts/Kanit-Regular.ttf"),
-                    font_size: 32.0,
-                    color: TEXT_COLOR,
+            builder.spawn(TextBundle::from_section("Score", label_style.clone()));
+            builder.spawn((
+                TextBundle::from_section("0", number_style.clone()),
+                ScoreboardText::Score,
+            ));
+        });
+
+    commands
+        .spawn(NodeBundle {
+            style: Style {
+                // fill the entire window
+                size: Size::all(Val::Percent(100.)),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::End,
+                padding: UiRect {
+                    left: Val::Px(8.0),
+                    top: Val::Px(8.0),
+                    right: Val::Px(8.0),
+                    bottom: Val::Px(8.0),
                 },
+                ..Default::default()
+            },
+            ..Default::default()
+        })
+        .with_children(|builder| {
+            builder.spawn(TextBundle::from_section(
+                "Patient Health",
+                label_style.clone(),
             ));
             builder.spawn((
-                TextBundle::from_section(
-                    "0",
-                    TextStyle {
-                        font: asset_server.load("fonts/Kanit-Regular.ttf"),
-                        font_size: 64.0,
-                        color: TEXT_COLOR,
-                    },
-                ),
-                ScoreboardText::Score,
+                TextBundle::from_section("100", number_style.clone()),
+                ScoreboardText::PatientHp,
             ));
         });
 }
@@ -282,6 +299,7 @@ fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<(&mut Text, &
         text.sections[0].value = match text_type {
             ScoreboardText::Score => scoreboard.score.to_string(),
             ScoreboardText::PlayerHp => scoreboard.player_hp.to_string(),
+            ScoreboardText::PatientHp => scoreboard.patient_hp.to_string(),
         }
     }
 }
