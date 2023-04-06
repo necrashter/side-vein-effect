@@ -25,9 +25,11 @@ fn main() {
         .add_systems(
             (
                 spawner_system.run_if(in_state(GameState::Running)),
+                player_shoot.run_if(in_state(GameState::Running)),
                 wall_system.run_if(in_state(GameState::Running)),
                 physics_objects.run_if(in_state(GameState::Running)),
                 cell_despawner.run_if(in_state(GameState::Running)),
+                player_bullet_despawner.run_if(in_state(GameState::Running)),
                 player_collisions.run_if(in_state(GameState::Running)),
                 player_movement.run_if(in_state(GameState::Running)),
                 game_over_check.run_if(in_state(GameState::Running)),
@@ -47,7 +49,9 @@ enum GameState {
 }
 
 #[derive(Component)]
-struct Player;
+struct Player {
+    shoot_timer: Timer,
+}
 
 #[derive(Component)]
 struct TopText;
@@ -67,6 +71,9 @@ enum Cell {
         damage: i32,
     },
 }
+
+#[derive(Component)]
+struct PlayerBullet;
 
 /// Tracks score, player health, etc.
 #[derive(Resource)]
@@ -106,6 +113,7 @@ struct Spawner {
     circle_mesh: Mesh2dHandle,
     body_color: Handle<ColorMaterial>,
     germ_color: Handle<ColorMaterial>,
+    nano_color: Handle<ColorMaterial>,
 }
 
 #[derive(Resource)]
@@ -147,12 +155,14 @@ fn setup(
     let circle_mesh: Mesh2dHandle = meshes.add(shape::Circle::default().into()).into();
     let body_color = materials.add(ColorMaterial::from(F0_COLOR));
     let germ_color = materials.add(ColorMaterial::from(GERM_COLOR));
+    let nano_color = materials.add(ColorMaterial::from(F1_COLOR));
 
     commands.insert_resource(Spawner {
         timer: Timer::from_seconds(2.5, TimerMode::Repeating),
         circle_mesh,
         body_color,
         germ_color,
+        nano_color: nano_color.clone(),
     });
 
     for i in 0..2 {
@@ -185,7 +195,7 @@ fn setup(
     commands.spawn((
         MaterialMesh2dBundle {
             mesh: meshes.add(shape::Circle::default().into()).into(),
-            material: materials.add(ColorMaterial::from(F1_COLOR)),
+            material: nano_color,
             transform: Transform::from_translation(Vec3::new(0.0, 0.0, 0.0))
                 .with_scale(Vec3::new(30.0, 30.0, 0.0)),
             ..default()
@@ -195,7 +205,9 @@ fn setup(
             acceleration: Vec2::ZERO,
             elasticity: 0.5,
         },
-        Player,
+        Player {
+            shoot_timer: Timer::from_seconds(0.1, TimerMode::Once),
+        },
     ));
 
     let label_style = TextStyle {
@@ -345,6 +357,38 @@ fn player_movement(
     }
 }
 
+fn player_shoot(
+    mut commands: Commands,
+    keyboard_input: Res<Input<KeyCode>>,
+    time: Res<Time>,
+    mut query: Query<(&Transform, &mut Player)>,
+    spawner: Res<Spawner>,
+) {
+    let (transform, mut player) = query.single_mut();
+    if player.shoot_timer.tick(time.delta()).finished() && keyboard_input.just_pressed(KeyCode::A) {
+        commands.spawn((
+            MaterialMesh2dBundle {
+                mesh: spawner.circle_mesh.clone(),
+                material: spawner.nano_color.clone(),
+                transform: Transform::from_translation(Vec3::new(
+                    transform.translation.x,
+                    transform.translation.y,
+                    0.5,
+                ))
+                .with_scale(Vec3::new(8.0, 8.0, 8.0)),
+                ..default()
+            },
+            Physics {
+                velocity: vec2(0.0, 600.0),
+                acceleration: vec2(0.0, 0.0),
+                elasticity: 0.9,
+            },
+            PlayerBullet,
+        ));
+        player.shoot_timer.reset();
+    }
+}
+
 fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<(&mut Text, &ScoreboardText)>) {
     for (mut text, text_type) in &mut query {
         text.sections[0].value = match text_type {
@@ -437,6 +481,19 @@ fn cell_despawner(
                 // Germs do double damage to host
                 scoreboard.patient_hp -= damage * 2;
             }
+        }
+    }
+}
+
+fn player_bullet_despawner(
+    mut commands: Commands,
+    boundaries: Res<Boundaries>,
+    query: Query<(Entity, &Transform, &PlayerBullet)>,
+) {
+    for (entity, transform, _) in &query {
+        let radius = transform.scale.x / 2.0;
+        if transform.translation.y - radius > boundaries.top {
+            commands.entity(entity).despawn();
         }
     }
 }
