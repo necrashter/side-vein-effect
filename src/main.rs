@@ -1,4 +1,4 @@
-use bevy::{math::vec3, prelude::*, sprite::MaterialMesh2dBundle};
+use bevy::{math::{vec3, vec2}, prelude::*, sprite::MaterialMesh2dBundle};
 
 // Defines the amount of time that should elapse between each physics step.
 const TIME_STEP: f32 = 1.0 / 144.0;
@@ -20,7 +20,7 @@ fn main() {
         .add_systems(
             (
                 wall_system,
-                cell_collisions,
+                physics_objects,
                 player_collisions,
                 player_movement,
             )
@@ -41,6 +41,12 @@ struct Cell;
 #[derive(Resource)]
 struct Scoreboard {
     score: usize,
+}
+
+#[derive(Component)]
+struct Physics {
+    velocity: Vec2,
+    acceleration: Vec2,
 }
 
 #[derive(Resource)]
@@ -86,11 +92,15 @@ fn setup(
                 material: materials.add(ColorMaterial::from(F0_COLOR)),
                 transform: Transform::from_translation(Vec3::new(
                     i as f32 * 90.0 - 640.0,
-                    60.0,
+                    300.0,
                     1.0,
                 ))
                 .with_scale(Vec3::new(90.0, 90.0, 0.0)),
                 ..default()
+            },
+            Physics {
+                velocity: vec2(0.0, 0.0),
+                acceleration: vec2(i as f32 * 50.0, -100.0),
             },
             Cell,
         ));
@@ -239,14 +249,21 @@ fn player_collisions(
     }
 }
 
-/// Cell boundary collisions.
-fn cell_collisions(boundaries: Res<Boundaries>, mut cell_query: Query<(&mut Transform, &Cell)>) {
-    for (mut transform, _) in &mut cell_query {
+/// Update physics objects.
+fn physics_objects(boundaries: Res<Boundaries>, mut query: Query<(&mut Transform, &mut Physics)>) {
+    for (mut transform, mut physics) in &mut query {
+        physics.velocity.x += physics.acceleration.x * TIME_STEP;
+        physics.velocity.y += physics.acceleration.y * TIME_STEP;
+        transform.translation.x += physics.velocity.x * TIME_STEP;
+        transform.translation.y += physics.velocity.y * TIME_STEP;
+
         let radius = transform.scale.x / 2.0;
         if transform.translation.x - radius < boundaries.left_wall {
             transform.translation.x = boundaries.left_wall + radius;
+            physics.velocity.x *= -1.0;
         } else if transform.translation.x + radius > boundaries.right_wall {
             transform.translation.x = boundaries.right_wall - radius;
+            physics.velocity.x *= -1.0;
         }
     }
 }
