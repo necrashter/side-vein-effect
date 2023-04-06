@@ -39,14 +39,22 @@ fn main() {
 struct Player;
 
 #[derive(Component)]
-struct Cell;
+enum Cell {
+    /// This is a cell belonging to the patient's body.
+    Body {
+        /// How much patient hp will be lost when this cell dies.
+        patient_hp: i32,
+        /// How much hp the player will gain by killing this cell.
+        player_hp: i32,
+    },
+}
 
 /// Tracks score, player health, etc.
 #[derive(Resource)]
 struct Scoreboard {
     score: usize,
-    player_hp: usize,
-    patient_hp: usize,
+    player_hp: i32,
+    patient_hp: i32,
 }
 
 impl Default for Scoreboard {
@@ -307,25 +315,33 @@ fn player_collisions(
     mut commands: Commands,
     mut scoreboard: ResMut<Scoreboard>,
     mut player_query: Query<&Transform, With<Player>>,
-    cell_query: Query<(Entity, &Transform), With<Cell>>,
-    // mut collision_events: EventWriter<CollisionEvent>,
+    cell_query: Query<(Entity, &Transform, &Cell)>,
 ) {
     let player_transform = player_query.single_mut();
     let player_size = player_transform.scale.y;
 
     // check collision with walls
-    for (collider_entity, transform) in &cell_query {
+    for (entity, transform, cell) in &cell_query {
         let dp = transform.translation - player_transform.translation;
         let dist = (dp.x * dp.x) + (dp.y * dp.y);
         let total_radius = (player_size + transform.scale.y) / 2.0;
         let rad2 = total_radius * total_radius;
         if dist <= rad2 {
-            // Sends a collision event so that other systems can react to the collision
-            // collision_events.send_default();
+            commands.entity(entity).despawn();
 
-            scoreboard.score += 1;
-            scoreboard.player_hp -= 1;
-            commands.entity(collider_entity).despawn();
+            match cell {
+                Cell::Body {
+                    patient_hp,
+                    player_hp,
+                } => {
+                    scoreboard.player_hp += player_hp;
+                    scoreboard.player_hp = scoreboard.player_hp.min(100);
+                    scoreboard.patient_hp -= patient_hp;
+                    if scoreboard.patient_hp < 0 {
+                        println!("Game over");
+                    }
+                }
+            }
         }
     }
 }
@@ -392,7 +408,10 @@ fn spawner_system(
                     acceleration: vec2(0.0, 0.0),
                     elasticity: 0.9,
                 },
-                Cell,
+                Cell::Body {
+                    patient_hp: 10,
+                    player_hp: 5,
+                },
             ));
         }
     }
