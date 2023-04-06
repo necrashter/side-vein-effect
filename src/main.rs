@@ -10,6 +10,7 @@ const TIME_STEP: f32 = 1.0 / 144.0;
 const B0_COLOR: Color = Color::rgb(61.0 / 255.0, 23.0 / 255.0, 102.0 / 255.0);
 const F0_COLOR: Color = Color::rgb(111.0 / 255.0, 26.0 / 255.0, 182.0 / 255.0);
 const F1_COLOR: Color = Color::rgb(1.0, 0.0, 50.0 / 255.0);
+const GERM_COLOR: Color = Color::rgb(0.05, 0.75, 0.05);
 const TEXT_COLOR: Color = Color::rgb(1.0, 1.0, 1.0);
 
 fn main() {
@@ -59,6 +60,11 @@ enum Cell {
         /// How much hp the player will gain by killing this cell.
         player_hp: i32,
     },
+    /// Enemy cell
+    Germ {
+        /// How much damage this will make to player/patient
+        damage: i32,
+    },
 }
 
 /// Tracks score, player health, etc.
@@ -97,7 +103,8 @@ struct Physics {
 struct Spawner {
     timer: Timer,
     circle_mesh: Mesh2dHandle,
-    enemy_color: Handle<ColorMaterial>,
+    body_color: Handle<ColorMaterial>,
+    germ_color: Handle<ColorMaterial>,
 }
 
 #[derive(Resource)]
@@ -137,12 +144,14 @@ fn setup(
     commands.spawn(Camera2dBundle::default());
 
     let circle_mesh: Mesh2dHandle = meshes.add(shape::Circle::default().into()).into();
-    let enemy_color = materials.add(ColorMaterial::from(F0_COLOR));
+    let body_color = materials.add(ColorMaterial::from(F0_COLOR));
+    let germ_color = materials.add(ColorMaterial::from(GERM_COLOR));
 
     commands.insert_resource(Spawner {
         timer: Timer::from_seconds(1.0, TimerMode::Repeating),
         circle_mesh,
-        enemy_color,
+        body_color,
+        germ_color,
     });
 
     for i in 0..2 {
@@ -380,6 +389,14 @@ fn player_collisions(
                         next_state.set(GameState::Ended);
                     }
                 }
+                Cell::Germ { damage } => {
+                    scoreboard.player_hp -= damage;
+                    if scoreboard.player_hp <= 0 {
+                        let mut top_text = top_text_query.single_mut();
+                        top_text.sections[0].value = "GAME OVER".to_owned();
+                        next_state.set(GameState::Ended);
+                    }
+                }
             }
         }
     }
@@ -407,12 +424,23 @@ fn physics_objects(boundaries: Res<Boundaries>, mut query: Query<(&mut Transform
 fn cell_despawner(
     mut commands: Commands,
     boundaries: Res<Boundaries>,
-    query: Query<(Entity, &Transform), With<Cell>>,
+    query: Query<(Entity, &Transform, &Cell)>,
+    mut scoreboard: ResMut<Scoreboard>,
+    mut top_text_query: Query<&mut Text, With<TopText>>,
+    mut next_state: ResMut<NextState<GameState>>,
 ) {
-    for (entity, transform) in &query {
+    for (entity, transform, cell) in &query {
         let radius = transform.scale.x / 2.0;
         if transform.translation.y + radius < boundaries.bottom {
             commands.entity(entity).despawn();
+            if let Cell::Germ { damage } = cell {
+                scoreboard.patient_hp -= damage;
+                if scoreboard.patient_hp <= 0 {
+                    let mut top_text = top_text_query.single_mut();
+                    top_text.sections[0].value = "GAME OVER".to_owned();
+                    next_state.set(GameState::Ended);
+                }
+            }
         }
     }
 }
@@ -430,10 +458,21 @@ fn spawner_system(
             let scale = radius * 2.0;
             let min_x = boundaries.left_wall + radius;
             let range_x = range_x - scale;
+            let (cell, material) = if rand::random::<bool>() {
+                (
+                    Cell::Body {
+                        patient_hp: 10,
+                        player_hp: 5,
+                    },
+                    spawner.body_color.clone(),
+                )
+            } else {
+                (Cell::Germ { damage: 5 }, spawner.germ_color.clone())
+            };
             commands.spawn((
                 MaterialMesh2dBundle {
                     mesh: spawner.circle_mesh.clone(),
-                    material: spawner.enemy_color.clone(),
+                    material,
                     transform: Transform::from_translation(Vec3::new(
                         rand::random::<f32>() * range_x + min_x,
                         360.0 + radius,
@@ -447,10 +486,7 @@ fn spawner_system(
                     acceleration: vec2(0.0, 0.0),
                     elasticity: 0.9,
                 },
-                Cell::Body {
-                    patient_hp: 10,
-                    player_hp: 5,
-                },
+                cell,
             ));
         }
     }
