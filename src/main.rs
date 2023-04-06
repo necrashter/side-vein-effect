@@ -362,23 +362,33 @@ fn cell_despawner(
     }
 }
 
-fn spawner_system(mut commands: Commands, time: Res<Time>, mut spawner: ResMut<Spawner>) {
+fn spawner_system(
+    mut commands: Commands,
+    time: Res<Time>,
+    boundaries: Res<Boundaries>,
+    mut spawner: ResMut<Spawner>,
+) {
     if spawner.timer.tick(time.delta()).just_finished() {
+        let range_x = boundaries.right_wall - boundaries.left_wall;
         for i in 0..2 {
+            let radius = 45.0;
+            let scale = radius * 2.0;
+            let min_x = boundaries.left_wall + radius;
+            let range_x = range_x - scale;
             commands.spawn((
                 MaterialMesh2dBundle {
                     mesh: spawner.circle_mesh.clone(),
                     material: spawner.enemy_color.clone(),
                     transform: Transform::from_translation(Vec3::new(
-                        i as f32 * 90.0 - 640.0,
-                        300.0 + 45.0 * i as f32,
+                        rand::random::<f32>() * range_x + min_x,
+                        360.0 + radius,
                         1.0,
                     ))
-                    .with_scale(Vec3::new(90.0, 90.0, 0.0)),
+                    .with_scale(Vec3::new(scale, scale, scale)),
                     ..default()
                 },
                 Physics {
-                    velocity: vec2(i as f32 * 50.0, -100.0),
+                    velocity: vec2(0.0, -300.0),
                     acceleration: vec2(0.0, 0.0),
                     elasticity: 0.9,
                 },
