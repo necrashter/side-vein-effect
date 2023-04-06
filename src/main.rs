@@ -70,6 +70,7 @@ enum ScoreboardText {
 struct Physics {
     velocity: Vec2,
     acceleration: Vec2,
+    elasticity: f32,
 }
 
 #[derive(Resource)]
@@ -162,6 +163,7 @@ fn setup(
         Physics {
             velocity: Vec2::ZERO,
             acceleration: Vec2::ZERO,
+            elasticity: 0.5,
         },
         Player,
     ));
@@ -339,10 +341,10 @@ fn physics_objects(boundaries: Res<Boundaries>, mut query: Query<(&mut Transform
         let radius = transform.scale.x / 2.0;
         if transform.translation.x - radius < boundaries.left_wall {
             transform.translation.x = boundaries.left_wall + radius;
-            physics.velocity.x *= -1.0;
+            physics.velocity.x *= -physics.elasticity;
         } else if transform.translation.x + radius > boundaries.right_wall {
             transform.translation.x = boundaries.right_wall - radius;
-            physics.velocity.x *= -1.0;
+            physics.velocity.x *= -physics.elasticity;
         }
     }
 }
@@ -378,6 +380,7 @@ fn spawner_system(mut commands: Commands, time: Res<Time>, mut spawner: ResMut<S
                 Physics {
                     velocity: vec2(i as f32 * 50.0, -100.0),
                     acceleration: vec2(0.0, 0.0),
+                    elasticity: 0.9,
                 },
                 Cell,
             ));
