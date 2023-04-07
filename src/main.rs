@@ -8,9 +8,9 @@ use rand::Rng;
 // Defines the amount of time that should elapse between each physics step.
 const TIME_STEP: f32 = 1.0 / 144.0;
 
-const B0_COLOR: Color = Color::rgb(61.0 / 255.0, 23.0 / 255.0, 102.0 / 255.0);
-const F0_COLOR: Color = Color::rgb(111.0 / 255.0, 26.0 / 255.0, 182.0 / 255.0);
-const F1_COLOR: Color = Color::rgb(1.0, 0.0, 50.0 / 255.0);
+const B0_COLOR: Color = Color::rgb(0.3, 0.05, 0.025);
+const F0_COLOR: Color = Color::rgb(0.5, 0.1, 0.1);
+const NANO_COLOR: Color = Color::rgb(1.0, 0.8, 0.8);
 const GERM_COLOR: Color = Color::rgb(0.05, 0.75, 0.05);
 const TEXT_COLOR: Color = Color::rgb(1.0, 1.0, 1.0);
 
@@ -169,7 +169,7 @@ fn setup(
     let circle_mesh: Mesh2dHandle = meshes.add(shape::Circle::default().into()).into();
     let body_color = materials.add(ColorMaterial::from(F0_COLOR));
     let germ_color = materials.add(ColorMaterial::from(GERM_COLOR));
-    let nano_color = materials.add(ColorMaterial::from(F1_COLOR));
+    let nano_color = materials.add(ColorMaterial::from(NANO_COLOR));
 
     commands.insert_resource(Spawner {
         timer: Timer::from_seconds(1.0, TimerMode::Repeating),
