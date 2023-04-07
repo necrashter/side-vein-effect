@@ -31,6 +31,7 @@ fn main() {
                 cell_despawner.run_if(in_state(GameState::Running)),
                 player_bullet_despawner.run_if(in_state(GameState::Running)),
                 player_collisions.run_if(in_state(GameState::Running)),
+                player_bullet_collisions.run_if(in_state(GameState::Running)),
                 player_movement.run_if(in_state(GameState::Running)),
                 game_over_check.run_if(in_state(GameState::Running)),
             )
@@ -409,7 +410,6 @@ fn player_collisions(
     let player_transform = player_query.single_mut();
     let player_size = player_transform.scale.y;
 
-    // check collision with walls
     for (entity, transform, cell) in &cell_query {
         let dp = transform.translation - player_transform.translation;
         let dist = (dp.x * dp.x) + (dp.y * dp.y);
@@ -430,6 +430,40 @@ fn player_collisions(
                 Cell::Germ { damage } => {
                     scoreboard.player_hp -= damage;
                     scoreboard.score += 1;
+                }
+            }
+        }
+    }
+}
+
+/// Player bullet and Cell collisions.
+fn player_bullet_collisions(
+    mut commands: Commands,
+    mut scoreboard: ResMut<Scoreboard>,
+    bullet_query: Query<(Entity, &Transform, &PlayerBullet)>,
+    cell_query: Query<(Entity, &Transform, &Cell)>,
+) {
+    for (bullet_entity, bullet_transform, _bullet) in &bullet_query {
+        let bullet_size = bullet_transform.scale.x;
+        for (cell_entity, cell_transform, cell) in &cell_query {
+            let dp = cell_transform.translation - bullet_transform.translation;
+            let dist = (dp.x * dp.x) + (dp.y * dp.y);
+            let total_radius = (bullet_size + cell_transform.scale.y) / 2.0;
+            let rad2 = total_radius * total_radius;
+            if dist <= rad2 {
+                commands.entity(cell_entity).despawn();
+                commands.entity(bullet_entity).despawn();
+
+                match cell {
+                    Cell::Body {
+                        patient_hp,
+                        player_hp: _, // Doesn't give player hp
+                    } => {
+                        scoreboard.patient_hp -= patient_hp;
+                    }
+                    Cell::Germ { damage: _ } => {
+                        scoreboard.score += 2;
+                    }
                 }
             }
         }
