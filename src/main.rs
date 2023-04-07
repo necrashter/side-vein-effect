@@ -25,6 +25,7 @@ fn main() {
         .add_state::<GameState>()
         .insert_resource(Scoreboard::default())
         .insert_resource(Boundaries::default())
+        .insert_resource(SideEffects::default())
         .insert_resource(ClearColor(B0_COLOR))
         .insert_resource(FixedTime::new_from_secs(TIME_STEP))
         .add_startup_system(setup)
@@ -42,6 +43,7 @@ fn main() {
                     .after(physics_objects)
                     .run_if(in_state(GameState::Running)),
                 player_movement.run_if(in_state(GameState::Running)),
+                side_effect_system.run_if(in_state(GameState::Running)),
                 game_over_check.run_if(in_state(GameState::Running)),
             )
                 .in_schedule(CoreSchedule::FixedUpdate),
@@ -96,8 +98,31 @@ struct Scoreboard {
     score: usize,
     player_hp: i32,
     patient_hp: i32,
-    left_effect_risk: i32,
-    right_effect_risk: i32,
+}
+
+#[derive(PartialEq, Eq)]
+enum SideEffectType {
+    None,
+    SlowerMovement,
+    FasterMovement,
+}
+
+impl SideEffectType {
+    fn random() -> SideEffectType {
+        match rand::random::<u32>() % 2 {
+            0 => SideEffectType::SlowerMovement,
+            1 => SideEffectType::FasterMovement,
+            _ => unreachable!(),
+        }
+    }
+
+    fn movement_multiplier(&self) -> f32 {
+        match self {
+            SideEffectType::SlowerMovement => 0.5,
+            SideEffectType::FasterMovement => 2.0,
+            _ => 1.0,
+        }
+    }
 }
 
 impl Default for Scoreboard {
@@ -106,8 +131,29 @@ impl Default for Scoreboard {
             score: 0,
             player_hp: 100,
             patient_hp: 100,
+        }
+    }
+}
+
+#[derive(Resource)]
+struct SideEffects {
+    left_effect_risk: i32,
+    right_effect_risk: i32,
+    left_effect: SideEffectType,
+    right_effect: SideEffectType,
+    left_effect_x: f32,
+    right_effect_x: f32,
+}
+
+impl Default for SideEffects {
+    fn default() -> Self {
+        Self {
             left_effect_risk: 0,
             right_effect_risk: 0,
+            left_effect: SideEffectType::None,
+            right_effect: SideEffectType::None,
+            left_effect_x: -100.0,
+            right_effect_x: 100.0,
         }
     }
 }
@@ -427,14 +473,18 @@ fn player_shoot(
     }
 }
 
-fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<(&mut Text, &ScoreboardText)>) {
+fn update_scoreboard(
+    scoreboard: Res<Scoreboard>,
+    side_effects: Res<SideEffects>,
+    mut query: Query<(&mut Text, &ScoreboardText)>,
+) {
     for (mut text, text_type) in &mut query {
         text.sections[0].value = match text_type {
             ScoreboardText::Score => scoreboard.score.to_string(),
             ScoreboardText::PlayerHp => scoreboard.player_hp.to_string(),
             ScoreboardText::PatientHp => scoreboard.patient_hp.to_string(),
-            ScoreboardText::LeftEffectRisk => scoreboard.left_effect_risk.to_string(),
-            ScoreboardText::RightEffectRisk => scoreboard.right_effect_risk.to_string(),
+            ScoreboardText::LeftEffectRisk => side_effects.left_effect_risk.to_string(),
+            ScoreboardText::RightEffectRisk => side_effects.right_effect_risk.to_string(),
         }
     }
 }
@@ -566,12 +616,22 @@ fn game_over_check(
 }
 
 /// Update physics objects.
-fn physics_objects(boundaries: Res<Boundaries>, mut query: Query<(&mut Transform, &mut Physics)>) {
+fn physics_objects(
+    boundaries: Res<Boundaries>,
+    side_effects: Res<SideEffects>,
+    mut query: Query<(&mut Transform, &mut Physics)>,
+) {
     for (mut transform, mut physics) in &mut query {
+        let mut velocity_mul = TIME_STEP;
+        if transform.translation.x > side_effects.right_effect_x {
+            velocity_mul *= side_effects.right_effect.movement_multiplier();
+        } else if transform.translation.x < side_effects.left_effect_x {
+            velocity_mul *= side_effects.left_effect.movement_multiplier();
+        }
         physics.velocity.x += physics.acceleration.x * TIME_STEP;
         physics.velocity.y += physics.acceleration.y * TIME_STEP;
-        transform.translation.x += physics.velocity.x * TIME_STEP;
-        transform.translation.y += physics.velocity.y * TIME_STEP;
+        transform.translation.x += physics.velocity.x * velocity_mul;
+        transform.translation.y += physics.velocity.y * velocity_mul;
 
         let radius = transform.scale.x / 2.0;
         if transform.translation.x - radius < boundaries.left_wall {
@@ -626,16 +686,16 @@ fn player_bullet_despawner(
     mut commands: Commands,
     boundaries: Res<Boundaries>,
     query: Query<(Entity, &Transform, &PlayerBullet)>,
-    mut scoreboard: ResMut<Scoreboard>,
+    mut side_effects: ResMut<SideEffects>,
 ) {
     for (entity, transform, _) in &query {
         // Allow some buffer space (cells can momentarily go outside screen)
         if transform.translation.y > boundaries.top + 360.0 {
             commands.entity(entity).despawn();
             if transform.translation.x > 0.0 {
-                scoreboard.right_effect_risk += PLAYER_BULLET_EFFECT_RISK;
+                side_effects.right_effect_risk += PLAYER_BULLET_EFFECT_RISK;
             } else {
-                scoreboard.left_effect_risk += PLAYER_BULLET_EFFECT_RISK;
+                side_effects.left_effect_risk += PLAYER_BULLET_EFFECT_RISK;
             }
         }
     }
@@ -702,5 +762,16 @@ fn spawner_system(
             },
             cell,
         ));
+    }
+}
+
+fn side_effect_system(mut side_effects: ResMut<SideEffects>) {
+    if side_effects.left_effect_risk > 100 && side_effects.left_effect == SideEffectType::None {
+        side_effects.left_effect_risk -= 100;
+        side_effects.left_effect = SideEffectType::random();
+    }
+    if side_effects.right_effect_risk > 100 && side_effects.right_effect == SideEffectType::None {
+        side_effects.right_effect_risk -= 100;
+        side_effects.right_effect = SideEffectType::random();
     }
 }
