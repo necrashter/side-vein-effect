@@ -14,6 +14,8 @@ const F1_COLOR: Color = Color::rgb(1.0, 0.0, 50.0 / 255.0);
 const GERM_COLOR: Color = Color::rgb(0.05, 0.75, 0.05);
 const TEXT_COLOR: Color = Color::rgb(1.0, 1.0, 1.0);
 
+const PLAYER_BULLET_DAMAGE: f32 = 30.0;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
@@ -199,6 +201,7 @@ fn setup(
         ));
     }
 
+    // PLAYER
     commands.spawn((
         MaterialMesh2dBundle {
             mesh: meshes.add(shape::Circle::default().into()).into(),
@@ -447,18 +450,20 @@ fn player_bullet_collisions(
     mut commands: Commands,
     mut scoreboard: ResMut<Scoreboard>,
     bullet_query: Query<(Entity, &Transform, &PlayerBullet)>,
-    mut cell_query: Query<(&Transform, &mut Cell)>,
+    mut cell_query: Query<(&Transform, &mut Physics, &mut Cell)>,
 ) {
     for (bullet_entity, bullet_transform, _bullet) in &bullet_query {
         let bullet_size = bullet_transform.scale.x;
-        for (cell_transform, mut cell) in &mut cell_query {
+        for (cell_transform, mut cell_physics, mut cell) in &mut cell_query {
             let dp = cell_transform.translation - bullet_transform.translation;
             let dist = (dp.x * dp.x) + (dp.y * dp.y);
             let total_radius = (bullet_size + cell_transform.scale.y) / 2.0;
             let rad2 = total_radius * total_radius;
             if dist <= rad2 {
                 commands.entity(bullet_entity).despawn();
-                cell.target_scale -= 30.0;
+                cell.target_scale -= PLAYER_BULLET_DAMAGE;
+                cell_physics.velocity.y += 200.0;
+                cell_physics.acceleration.y -= 100.0;
 
                 if let CellType::Germ { damage: _ } = cell.cell_type {
                     scoreboard.score += 1;
@@ -502,10 +507,10 @@ fn physics_objects(boundaries: Res<Boundaries>, mut query: Query<(&mut Transform
 fn cell_despawner(
     mut commands: Commands,
     boundaries: Res<Boundaries>,
-    mut query: Query<(Entity, &mut Transform, &Cell)>,
+    mut query: Query<(Entity, &mut Transform, &mut Cell)>,
     mut scoreboard: ResMut<Scoreboard>,
 ) {
-    for (entity, mut transform, cell) in &mut query {
+    for (entity, mut transform, mut cell) in &mut query {
         let scale_diff = cell.target_scale - transform.scale.x;
         let scale_speed = TIME_STEP * 500.0;
         if scale_diff.abs() > scale_speed {
@@ -515,7 +520,10 @@ fn cell_despawner(
         }
         transform.scale.y = transform.scale.x;
         let radius = transform.scale.x / 2.0;
-        if radius < 10.0 {
+        if radius < 15.0 {
+            cell.target_scale = 0.0;
+        }
+        if radius < 5.0 {
             commands.entity(entity).despawn();
             match cell.cell_type {
                 CellType::Body {
