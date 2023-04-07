@@ -64,19 +64,19 @@ struct TopText;
 struct Cell {
     target_scale: f32,
     cell_type: CellType,
+    /// How much patient hp will be recovered/lost when this cell reaches the end.
+    patient_hp: i32,
 }
 
 enum CellType {
     /// This is a cell belonging to the patient's body.
     Body {
-        /// How much patient hp will be lost when this cell dies.
-        patient_hp: i32,
-        /// How much hp the player will gain by killing this cell.
+        /// How much hp the player will gain by eating this cell.
         player_hp: i32,
     },
     /// Enemy cell
     Germ {
-        /// How much damage this will make to player/patient
+        /// How much damage this will deal to the player
         damage: i32,
     },
 }
@@ -429,12 +429,11 @@ fn player_collisions(
 
             match cell.cell_type {
                 CellType::Body {
-                    patient_hp,
                     player_hp,
                 } => {
                     scoreboard.player_hp += player_hp;
                     scoreboard.player_hp = scoreboard.player_hp.min(100);
-                    scoreboard.patient_hp -= patient_hp;
+                    scoreboard.patient_hp -= player_hp;
                 }
                 CellType::Germ { damage } => {
                     scoreboard.player_hp -= damage;
@@ -463,7 +462,7 @@ fn player_bullet_collisions(
                 commands.entity(bullet_entity).despawn();
                 cell.target_scale -= PLAYER_BULLET_DAMAGE;
                 cell_physics.velocity.y += 200.0;
-                cell_physics.acceleration.y -= 100.0;
+                cell_physics.acceleration.y -= 50.0;
 
                 if let CellType::Germ { damage: _ } = cell.cell_type {
                     scoreboard.score += 1;
@@ -526,11 +525,9 @@ fn cell_despawner(
         if radius < 5.0 {
             commands.entity(entity).despawn();
             match cell.cell_type {
-                CellType::Body {
-                    patient_hp,
-                    player_hp: _, // Doesn't give player hp
-                } => {
-                    scoreboard.patient_hp -= patient_hp;
+                CellType::Body { player_hp } => {
+                    // Doesn't give player hp when shot
+                    scoreboard.patient_hp -= player_hp;
                 }
                 CellType::Germ { damage: _ } => {
                     scoreboard.score += 1;
@@ -538,10 +535,8 @@ fn cell_despawner(
             }
         } else if transform.translation.y + radius < boundaries.bottom {
             commands.entity(entity).despawn();
-            if let CellType::Germ { damage } = cell.cell_type {
-                // Germs do double damage to host
-                scoreboard.patient_hp -= damage * 2;
-            }
+            scoreboard.patient_hp += cell.patient_hp;
+            scoreboard.patient_hp = scoreboard.patient_hp.min(100);
         }
     }
 }
@@ -552,8 +547,8 @@ fn player_bullet_despawner(
     query: Query<(Entity, &Transform, &PlayerBullet)>,
 ) {
     for (entity, transform, _) in &query {
-        let radius = transform.scale.x / 2.0;
-        if transform.translation.y - radius > boundaries.top {
+        // Allow some buffer space (cells can momentarily go outside screen)
+        if transform.translation.y > boundaries.top + 360.0 {
             commands.entity(entity).despawn();
         }
     }
@@ -581,12 +576,12 @@ fn spawner_system(
             (
                 Cell {
                     cell_type: CellType::Body {
-                        patient_hp: 5,
                         player_hp: 10,
                     },
                     target_scale: scale,
+                    patient_hp: 1,
                 },
-                vec2(0.0, -200.0 - rng.gen_range(0.0..100.0)),
+                vec2(0.0, -100.0 - rng.gen_range(0.0..100.0)),
                 spawner.body_color.clone(),
             )
         } else {
@@ -594,10 +589,11 @@ fn spawner_system(
                 Cell {
                     cell_type: CellType::Germ { damage: 5 },
                     target_scale: scale,
+                    patient_hp: -5,
                 },
                 vec2(
                     rng.gen_range(-50.0..50.0),
-                    -200.0 - rng.gen_range(0.0..100.0),
+                    -000.0 - rng.gen_range(0.0..100.0),
                 ),
                 spawner.germ_color.clone(),
             )
@@ -616,7 +612,7 @@ fn spawner_system(
             },
             Physics {
                 velocity,
-                acceleration: vec2(0.0, 0.0),
+                acceleration: vec2(0.0, -25.0),
                 elasticity: 0.9,
             },
             cell,
