@@ -15,6 +15,8 @@ const GERM_COLOR: Color = Color::rgb(0.05, 0.75, 0.05);
 const TEXT_COLOR: Color = Color::rgb(1.0, 1.0, 1.0);
 
 const PLAYER_BULLET_DAMAGE: f32 = 30.0;
+/// Damage dealt when two cells with different types collide.
+const CELL_INTERCOLLISION_DAMAGE: f32 = 20.0;
 
 fn main() {
     App::new()
@@ -35,6 +37,9 @@ fn main() {
                 player_bullet_despawner.run_if(in_state(GameState::Running)),
                 player_collisions.run_if(in_state(GameState::Running)),
                 player_bullet_collisions.run_if(in_state(GameState::Running)),
+                cell_cell_collisions
+                    .after(physics_objects)
+                    .run_if(in_state(GameState::Running)),
                 player_movement.run_if(in_state(GameState::Running)),
                 game_over_check.run_if(in_state(GameState::Running)),
             )
@@ -428,9 +433,7 @@ fn player_collisions(
             commands.entity(entity).despawn();
 
             match cell.cell_type {
-                CellType::Body {
-                    player_hp,
-                } => {
+                CellType::Body { player_hp } => {
                     scoreboard.player_hp += player_hp;
                     scoreboard.player_hp = scoreboard.player_hp.min(100);
                     scoreboard.patient_hp -= player_hp;
@@ -468,6 +471,59 @@ fn player_bullet_collisions(
                     scoreboard.score += 1;
                 }
             }
+        }
+    }
+}
+
+fn vec_along(a: Vec2, b: Vec2) -> (Vec2, Vec2) {
+    let along = b * a.dot(b);
+    let not_along = a - along;
+    (along, not_along)
+}
+
+fn cell_cell_collisions(mut query: Query<(&mut Transform, &mut Physics, &mut Cell)>) {
+    let mut combinations = query.iter_combinations_mut();
+    while let Some([(mut t1, mut p1, mut c1), (mut t2, mut p2, mut c2)]) = combinations.fetch_next()
+    {
+        let diff: Vec2 = (t1.translation - t2.translation).truncate();
+        let total_radius = (t1.scale.x + t2.scale.x) / 2.0;
+        if diff.length_squared() > total_radius * total_radius {
+            continue;
+        }
+
+        // Assume densities are the same: mass is proportional to size.
+        let m1 = t1.scale.x;
+        let m2 = t2.scale.x;
+
+        // Solve velocity
+        let normal = diff.normalize_or_zero();
+        let (v1, w1) = vec_along(p1.velocity, normal);
+        let (v2, w2) = vec_along(p2.velocity, normal);
+        // v1i + v1f = v2i + v2f
+        // v1f = v2i + v2f - v1i
+        // Conversation of momentum
+        // m1 v1i + m2 v2i = m1 v1f + m2 v2f
+        // m1 v1i + m2 v2i = m1 (v2i + v2f - v1i) + m2 v2f
+        // m1 (v1i - v2i + v1i) + m2 v2i = m1 v2f + m2 v2f
+        // v2f = (m1 (v1i - v2i + v1i) + m2 v2i) / (m1 + m2)
+        let v2f = (m1 * (v1 + v1 - v2) + m2 * v2) / (m1 + m2);
+        let v1f = v2 + v2f - v1;
+        p1.velocity = v1f + w1;
+        p2.velocity = v2f + w2;
+
+        // Solve position
+        let push_length = (diff.length() - total_radius) * 0.6;
+        let push_x = normal.x * push_length;
+        let push_y = normal.y * push_length;
+        t1.translation.x -= push_x;
+        t1.translation.y -= push_y;
+        t2.translation.x += push_x;
+        t2.translation.y += push_y;
+
+        if std::mem::discriminant(&c1.cell_type) != std::mem::discriminant(&c2.cell_type) {
+            // Cells have different types
+            c1.target_scale -= CELL_INTERCOLLISION_DAMAGE;
+            c2.target_scale -= CELL_INTERCOLLISION_DAMAGE;
         }
     }
 }
@@ -575,9 +631,7 @@ fn spawner_system(
         let (cell, velocity, material) = if rng.gen_bool(0.5) {
             (
                 Cell {
-                    cell_type: CellType::Body {
-                        player_hp: 10,
-                    },
+                    cell_type: CellType::Body { player_hp: 10 },
                     target_scale: scale,
                     patient_hp: 1,
                 },
@@ -604,7 +658,7 @@ fn spawner_system(
                 material,
                 transform: Transform::from_translation(Vec3::new(
                     rng.gen_range(0.0..range_x) + min_x,
-                    360.0 + radius + scale * i as f32,
+                    boundaries.top + radius + scale * i as f32,
                     1.0,
                 ))
                 .with_scale(Vec3::new(scale, scale, scale)),
