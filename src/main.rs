@@ -15,6 +15,7 @@ const GERM_COLOR: Color = Color::rgb(0.05, 0.75, 0.05);
 const TEXT_COLOR: Color = Color::rgb(1.0, 1.0, 1.0);
 
 const PLAYER_BULLET_DAMAGE: f32 = 30.0;
+const PLAYER_BULLET_EFFECT_RISK: i32 = 10;
 /// Damage dealt when two cells with different types collide.
 const CELL_INTERCOLLISION_DAMAGE: f32 = 20.0;
 
@@ -95,6 +96,8 @@ struct Scoreboard {
     score: usize,
     player_hp: i32,
     patient_hp: i32,
+    left_effect_risk: i32,
+    right_effect_risk: i32,
 }
 
 impl Default for Scoreboard {
@@ -103,6 +106,8 @@ impl Default for Scoreboard {
             score: 0,
             player_hp: 100,
             patient_hp: 100,
+            left_effect_risk: 0,
+            right_effect_risk: 0,
         }
     }
 }
@@ -112,6 +117,8 @@ enum ScoreboardText {
     Score,
     PlayerHp,
     PatientHp,
+    LeftEffectRisk,
+    RightEffectRisk,
 }
 
 #[derive(Component)]
@@ -255,6 +262,14 @@ fn setup(
         })
         .with_children(|builder| {
             builder.spawn(TextBundle::from_section(
+                "Left Side-Effect Risk",
+                label_style.clone(),
+            ));
+            builder.spawn((
+                TextBundle::from_section("0", number_style.clone()),
+                ScoreboardText::LeftEffectRisk,
+            ));
+            builder.spawn(TextBundle::from_section(
                 "Nanomachine Health",
                 label_style.clone(),
             ));
@@ -287,6 +302,14 @@ fn setup(
             ..Default::default()
         })
         .with_children(|builder| {
+            builder.spawn(TextBundle::from_section(
+                "Right Side-Effect Risk",
+                label_style.clone(),
+            ));
+            builder.spawn((
+                TextBundle::from_section("0", number_style.clone()),
+                ScoreboardText::RightEffectRisk,
+            ));
             builder.spawn(TextBundle::from_section(
                 "Patient Health",
                 label_style.clone(),
@@ -410,6 +433,8 @@ fn update_scoreboard(scoreboard: Res<Scoreboard>, mut query: Query<(&mut Text, &
             ScoreboardText::Score => scoreboard.score.to_string(),
             ScoreboardText::PlayerHp => scoreboard.player_hp.to_string(),
             ScoreboardText::PatientHp => scoreboard.patient_hp.to_string(),
+            ScoreboardText::LeftEffectRisk => scoreboard.left_effect_risk.to_string(),
+            ScoreboardText::RightEffectRisk => scoreboard.right_effect_risk.to_string(),
         }
     }
 }
@@ -601,11 +626,17 @@ fn player_bullet_despawner(
     mut commands: Commands,
     boundaries: Res<Boundaries>,
     query: Query<(Entity, &Transform, &PlayerBullet)>,
+    mut scoreboard: ResMut<Scoreboard>,
 ) {
     for (entity, transform, _) in &query {
         // Allow some buffer space (cells can momentarily go outside screen)
         if transform.translation.y > boundaries.top + 360.0 {
             commands.entity(entity).despawn();
+            if transform.translation.x > 0.0 {
+                scoreboard.right_effect_risk += PLAYER_BULLET_EFFECT_RISK;
+            } else {
+                scoreboard.left_effect_risk += PLAYER_BULLET_EFFECT_RISK;
+            }
         }
     }
 }
