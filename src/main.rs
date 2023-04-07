@@ -3,6 +3,7 @@ use bevy::{
     prelude::*,
     sprite::{MaterialMesh2dBundle, Mesh2dHandle},
 };
+use rand::Rng;
 
 // Defines the amount of time that should elapse between each physics step.
 const TIME_STEP: f32 = 1.0 / 144.0;
@@ -159,7 +160,7 @@ fn setup(
     let nano_color = materials.add(ColorMaterial::from(F1_COLOR));
 
     commands.insert_resource(Spawner {
-        timer: Timer::from_seconds(2.5, TimerMode::Repeating),
+        timer: Timer::from_seconds(1.0, TimerMode::Repeating),
         circle_mesh,
         body_color,
         germ_color,
@@ -207,7 +208,7 @@ fn setup(
             elasticity: 0.5,
         },
         Player {
-            shoot_timer: Timer::from_seconds(0.1, TimerMode::Once),
+            shoot_timer: Timer::from_seconds(0.25, TimerMode::Once),
         },
     ));
 
@@ -366,7 +367,7 @@ fn player_shoot(
     spawner: Res<Spawner>,
 ) {
     let (transform, mut player) = query.single_mut();
-    if player.shoot_timer.tick(time.delta()).finished() && keyboard_input.just_pressed(KeyCode::A) {
+    if player.shoot_timer.tick(time.delta()).finished() && keyboard_input.pressed(KeyCode::A) {
         commands.spawn((
             MaterialMesh2dBundle {
                 mesh: spawner.circle_mesh.clone(),
@@ -537,44 +538,56 @@ fn spawner_system(
     time: Res<Time>,
     boundaries: Res<Boundaries>,
     mut spawner: ResMut<Spawner>,
+    cell_query: Query<&Cell>,
 ) {
-    if spawner.timer.tick(time.delta()).just_finished() {
-        let range_x = boundaries.right_wall - boundaries.left_wall;
-        for i in 0..2 {
-            let radius = 45.0;
-            let scale = radius * 2.0;
-            let min_x = boundaries.left_wall + radius;
-            let range_x = range_x - scale;
-            let (cell, material) = if rand::random::<bool>() {
-                (
-                    Cell::Body {
-                        patient_hp: 5,
-                        player_hp: 10,
-                    },
-                    spawner.body_color.clone(),
-                )
-            } else {
-                (Cell::Germ { damage: 5 }, spawner.germ_color.clone())
-            };
-            commands.spawn((
-                MaterialMesh2dBundle {
-                    mesh: spawner.circle_mesh.clone(),
-                    material,
-                    transform: Transform::from_translation(Vec3::new(
-                        rand::random::<f32>() * range_x + min_x,
-                        360.0 + radius,
-                        1.0,
-                    ))
-                    .with_scale(Vec3::new(scale, scale, scale)),
-                    ..default()
+    if !(spawner.timer.tick(time.delta()).just_finished() && cell_query.is_empty()) {
+        return;
+    }
+    let mut rng = rand::thread_rng();
+    let range_x = boundaries.right_wall - boundaries.left_wall;
+    let count = rng.gen_range(2..=4);
+    for i in 0..count {
+        let radius = 45.0;
+        let scale = radius * 2.0;
+        let min_x = boundaries.left_wall + radius;
+        let range_x = range_x - scale;
+        let (cell, velocity, material) = if rng.gen_bool(0.5) {
+            (
+                Cell::Body {
+                    patient_hp: 5,
+                    player_hp: 10,
                 },
-                Physics {
-                    velocity: vec2(0.0, -200.0),
-                    acceleration: vec2(0.0, 0.0),
-                    elasticity: 0.9,
-                },
-                cell,
-            ));
-        }
+                vec2(0.0, -200.0 - rng.gen_range(0.0..100.0)),
+                spawner.body_color.clone(),
+            )
+        } else {
+            (
+                Cell::Germ { damage: 5 },
+                vec2(
+                    rng.gen_range(-50.0..50.0),
+                    -200.0 - rng.gen_range(0.0..100.0),
+                ),
+                spawner.germ_color.clone(),
+            )
+        };
+        commands.spawn((
+            MaterialMesh2dBundle {
+                mesh: spawner.circle_mesh.clone(),
+                material,
+                transform: Transform::from_translation(Vec3::new(
+                    rng.gen_range(0.0..range_x) + min_x,
+                    360.0 + radius + scale * i as f32,
+                    1.0,
+                ))
+                .with_scale(Vec3::new(scale, scale, scale)),
+                ..default()
+            },
+            Physics {
+                velocity,
+                acceleration: vec2(0.0, 0.0),
+                elasticity: 0.9,
+            },
+            cell,
+        ));
     }
 }
