@@ -59,7 +59,12 @@ struct Player {
 struct TopText;
 
 #[derive(Component)]
-enum Cell {
+struct Cell {
+    target_scale: f32,
+    cell_type: CellType,
+}
+
+enum CellType {
     /// This is a cell belonging to the patient's body.
     Body {
         /// How much patient hp will be lost when this cell dies.
@@ -419,8 +424,8 @@ fn player_collisions(
         if dist <= rad2 {
             commands.entity(entity).despawn();
 
-            match cell {
-                Cell::Body {
+            match cell.cell_type {
+                CellType::Body {
                     patient_hp,
                     player_hp,
                 } => {
@@ -428,7 +433,7 @@ fn player_collisions(
                     scoreboard.player_hp = scoreboard.player_hp.min(100);
                     scoreboard.patient_hp -= patient_hp;
                 }
-                Cell::Germ { damage } => {
+                CellType::Germ { damage } => {
                     scoreboard.player_hp -= damage;
                     scoreboard.score += 1;
                 }
@@ -442,29 +447,21 @@ fn player_bullet_collisions(
     mut commands: Commands,
     mut scoreboard: ResMut<Scoreboard>,
     bullet_query: Query<(Entity, &Transform, &PlayerBullet)>,
-    cell_query: Query<(Entity, &Transform, &Cell)>,
+    mut cell_query: Query<(&Transform, &mut Cell)>,
 ) {
     for (bullet_entity, bullet_transform, _bullet) in &bullet_query {
         let bullet_size = bullet_transform.scale.x;
-        for (cell_entity, cell_transform, cell) in &cell_query {
+        for (cell_transform, mut cell) in &mut cell_query {
             let dp = cell_transform.translation - bullet_transform.translation;
             let dist = (dp.x * dp.x) + (dp.y * dp.y);
             let total_radius = (bullet_size + cell_transform.scale.y) / 2.0;
             let rad2 = total_radius * total_radius;
             if dist <= rad2 {
-                commands.entity(cell_entity).despawn();
                 commands.entity(bullet_entity).despawn();
+                cell.target_scale -= 30.0;
 
-                match cell {
-                    Cell::Body {
-                        patient_hp,
-                        player_hp: _, // Doesn't give player hp
-                    } => {
-                        scoreboard.patient_hp -= patient_hp;
-                    }
-                    Cell::Germ { damage: _ } => {
-                        scoreboard.score += 2;
-                    }
+                if let CellType::Germ { damage: _ } = cell.cell_type {
+                    scoreboard.score += 1;
                 }
             }
         }
@@ -505,14 +502,35 @@ fn physics_objects(boundaries: Res<Boundaries>, mut query: Query<(&mut Transform
 fn cell_despawner(
     mut commands: Commands,
     boundaries: Res<Boundaries>,
-    query: Query<(Entity, &Transform, &Cell)>,
+    mut query: Query<(Entity, &mut Transform, &Cell)>,
     mut scoreboard: ResMut<Scoreboard>,
 ) {
-    for (entity, transform, cell) in &query {
+    for (entity, mut transform, cell) in &mut query {
+        let scale_diff = cell.target_scale - transform.scale.x;
+        let scale_speed = TIME_STEP * 500.0;
+        if scale_diff.abs() > scale_speed {
+            transform.scale.x += scale_diff.signum() * scale_speed;
+        } else {
+            transform.scale.x = cell.target_scale;
+        }
+        transform.scale.y = transform.scale.x;
         let radius = transform.scale.x / 2.0;
-        if transform.translation.y + radius < boundaries.bottom {
+        if radius < 10.0 {
             commands.entity(entity).despawn();
-            if let Cell::Germ { damage } = cell {
+            match cell.cell_type {
+                CellType::Body {
+                    patient_hp,
+                    player_hp: _, // Doesn't give player hp
+                } => {
+                    scoreboard.patient_hp -= patient_hp;
+                }
+                CellType::Germ { damage: _ } => {
+                    scoreboard.score += 1;
+                }
+            }
+        } else if transform.translation.y + radius < boundaries.bottom {
+            commands.entity(entity).despawn();
+            if let CellType::Germ { damage } = cell.cell_type {
                 // Germs do double damage to host
                 scoreboard.patient_hp -= damage * 2;
             }
@@ -553,16 +571,22 @@ fn spawner_system(
         let range_x = range_x - scale;
         let (cell, velocity, material) = if rng.gen_bool(0.5) {
             (
-                Cell::Body {
-                    patient_hp: 5,
-                    player_hp: 10,
+                Cell {
+                    cell_type: CellType::Body {
+                        patient_hp: 5,
+                        player_hp: 10,
+                    },
+                    target_scale: scale,
                 },
                 vec2(0.0, -200.0 - rng.gen_range(0.0..100.0)),
                 spawner.body_color.clone(),
             )
         } else {
             (
-                Cell::Germ { damage: 5 },
+                Cell {
+                    cell_type: CellType::Germ { damage: 5 },
+                    target_scale: scale,
+                },
                 vec2(
                     rng.gen_range(-50.0..50.0),
                     -200.0 - rng.gen_range(0.0..100.0),
