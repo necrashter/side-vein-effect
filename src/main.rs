@@ -123,6 +123,14 @@ impl SideEffectType {
             _ => 1.0,
         }
     }
+
+    fn name(&self) -> &str {
+        match self {
+            SideEffectType::None => "None",
+            SideEffectType::SlowerMovement => "Slower movement",
+            SideEffectType::FasterMovement => "Faster movement",
+        }
+    }
 }
 
 impl Default for Scoreboard {
@@ -133,6 +141,11 @@ impl Default for Scoreboard {
             patient_hp: 100,
         }
     }
+}
+
+#[derive(Resource)]
+struct InGameText {
+    text_style: TextStyle,
 }
 
 #[derive(Resource)]
@@ -264,8 +277,8 @@ fn setup(
         MaterialMesh2dBundle {
             mesh: meshes.add(shape::Circle::default().into()).into(),
             material: nano_color,
-            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 0.0))
-                .with_scale(Vec3::new(30.0, 30.0, 0.0)),
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 10.0))
+                .with_scale(Vec3::new(30.0, 30.0, 1.0)),
             ..default()
         },
         Physics {
@@ -288,6 +301,14 @@ fn setup(
         font_size: 64.0,
         color: TEXT_COLOR,
     };
+
+    commands.insert_resource(InGameText {
+        text_style: TextStyle {
+            font: asset_server.load("fonts/Kanit-Regular.ttf"),
+            font_size: 42.0,
+            color: TEXT_COLOR,
+        },
+    });
 
     commands
         .spawn(NodeBundle {
@@ -457,7 +478,7 @@ fn player_shoot(
                 transform: Transform::from_translation(Vec3::new(
                     transform.translation.x,
                     transform.translation.y,
-                    0.5,
+                    1.0,
                 ))
                 .with_scale(Vec3::new(8.0, 8.0, 8.0)),
                 ..default()
@@ -765,13 +786,60 @@ fn spawner_system(
     }
 }
 
-fn side_effect_system(mut side_effects: ResMut<SideEffects>) {
+fn side_effect_system(
+    mut commands: Commands,
+    boundaries: Res<Boundaries>,
+    in_game_text: Res<InGameText>,
+    mut side_effects: ResMut<SideEffects>,
+) {
+    let mut spawn_side_effect = |effect_x: f32, wall_x: f32, effect: &SideEffectType| {
+        let translation = vec2((effect_x + wall_x) / 2.0, 0.0);
+        let size = vec2((effect_x - wall_x).abs(), 720.0);
+        commands.spawn(SpriteBundle {
+            sprite: Sprite {
+                color: Color::rgb(0.25, 0.25, 0.75),
+                ..default()
+            },
+            transform: Transform {
+                translation: translation.extend(0.5),
+                scale: size.extend(1.0),
+                ..default()
+            },
+            ..default()
+        });
+        commands.spawn(Text2dBundle {
+            text: Text {
+                sections: vec![TextSection::new(
+                    effect.name().to_owned(),
+                    in_game_text.text_style.clone(),
+                )],
+                alignment: TextAlignment::Center,
+                ..Default::default()
+            },
+            text_2d_bounds: bevy::text::Text2dBounds { size },
+            transform: Transform {
+                translation: translation.extend(0.625),
+                ..default()
+            },
+            ..default()
+        });
+    };
     if side_effects.left_effect_risk > 100 && side_effects.left_effect == SideEffectType::None {
         side_effects.left_effect_risk -= 100;
         side_effects.left_effect = SideEffectType::random();
+        spawn_side_effect(
+            side_effects.left_effect_x,
+            boundaries.left_wall,
+            &side_effects.left_effect,
+        );
     }
     if side_effects.right_effect_risk > 100 && side_effects.right_effect == SideEffectType::None {
         side_effects.right_effect_risk -= 100;
         side_effects.right_effect = SideEffectType::random();
+        spawn_side_effect(
+            side_effects.right_effect_x,
+            boundaries.right_wall,
+            &side_effects.right_effect,
+        );
     }
 }
