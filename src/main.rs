@@ -19,6 +19,8 @@ const PLAYER_BULLET_EFFECT_RISK: i32 = 10;
 /// Damage dealt when two cells with different types collide.
 const CELL_INTERCOLLISION_DAMAGE: f32 = 20.0;
 
+const SIDE_EFFECT_DURATION: f32 = 5.0;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
@@ -92,6 +94,13 @@ enum CellType {
 #[derive(Component)]
 struct PlayerBullet;
 
+/// Component related to side effects
+#[derive(Component, PartialEq, Eq, Clone, Copy)]
+enum SideFx {
+    Left,
+    Right,
+}
+
 /// Tracks score, player health, etc.
 #[derive(Resource)]
 struct Scoreboard {
@@ -156,6 +165,8 @@ struct SideEffects {
     right_effect: SideEffectType,
     left_effect_x: f32,
     right_effect_x: f32,
+    left_timer: Timer,
+    right_timer: Timer,
 }
 
 impl Default for SideEffects {
@@ -167,6 +178,8 @@ impl Default for SideEffects {
             right_effect: SideEffectType::None,
             left_effect_x: -100.0,
             right_effect_x: 100.0,
+    left_timer: Timer::from_seconds(SIDE_EFFECT_DURATION, TimerMode::Repeating),
+    right_timer: Timer::from_seconds(SIDE_EFFECT_DURATION, TimerMode::Repeating),
         }
     }
 }
@@ -788,14 +801,17 @@ fn spawner_system(
 
 fn side_effect_system(
     mut commands: Commands,
+    time: Res<Time>,
     boundaries: Res<Boundaries>,
     in_game_text: Res<InGameText>,
     mut side_effects: ResMut<SideEffects>,
+    query: Query<(Entity, &SideFx)>,
 ) {
-    let mut spawn_side_effect = |effect_x: f32, wall_x: f32, effect: &SideEffectType| {
+    let spawn_side_effect = |commands: &mut Commands, fx_component: SideFx, effect_x: f32, wall_x: f32, effect: &SideEffectType| {
         let translation = vec2((effect_x + wall_x) / 2.0, 0.0);
         let size = vec2((effect_x - wall_x).abs(), 720.0);
-        commands.spawn(SpriteBundle {
+        commands.spawn((
+                SpriteBundle {
             sprite: Sprite {
                 color: Color::rgb(0.25, 0.25, 0.75),
                 ..default()
@@ -806,8 +822,11 @@ fn side_effect_system(
                 ..default()
             },
             ..default()
-        });
-        commands.spawn(Text2dBundle {
+        },
+        fx_component,
+        ));
+        commands.spawn((
+                Text2dBundle {
             text: Text {
                 sections: vec![TextSection::new(
                     effect.name().to_owned(),
@@ -822,21 +841,47 @@ fn side_effect_system(
                 ..default()
             },
             ..default()
-        });
+        },
+        fx_component,
+        ));
     };
-    if side_effects.left_effect_risk > 100 && side_effects.left_effect == SideEffectType::None {
+    if side_effects.left_effect != SideEffectType::None {
+        if side_effects.left_timer.tick(time.delta()).just_finished() {
+            side_effects.left_timer.reset();
+            side_effects.left_effect = SideEffectType::None;
+            for (entity, fx) in &query {
+                if *fx == SideFx::Left {
+                    commands.entity(entity).despawn();
+                }
+            }
+        }
+    } else if side_effects.left_effect_risk > 100 {
         side_effects.left_effect_risk -= 100;
         side_effects.left_effect = SideEffectType::random();
         spawn_side_effect(
+            &mut commands,
+            SideFx::Left,
             side_effects.left_effect_x,
             boundaries.left_wall,
             &side_effects.left_effect,
         );
     }
-    if side_effects.right_effect_risk > 100 && side_effects.right_effect == SideEffectType::None {
+    if side_effects.right_effect != SideEffectType::None {
+        if side_effects.right_timer.tick(time.delta()).just_finished() {
+            side_effects.right_timer.reset();
+            side_effects.right_effect = SideEffectType::None;
+            for (entity, fx) in &query {
+                if *fx == SideFx::Right {
+                    commands.entity(entity).despawn();
+                }
+            }
+        }
+    } else if side_effects.right_effect_risk > 100 {
         side_effects.right_effect_risk -= 100;
         side_effects.right_effect = SideEffectType::random();
         spawn_side_effect(
+            &mut commands,
+            SideFx::Right,
             side_effects.right_effect_x,
             boundaries.right_wall,
             &side_effects.right_effect,
