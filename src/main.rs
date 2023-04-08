@@ -11,13 +11,12 @@ const TIME_STEP: f32 = 1.0 / 144.0;
 const B0_COLOR: Color = Color::rgb(0.3, 0.05, 0.025);
 const F0_COLOR: Color = Color::rgb(0.5, 0.1, 0.1);
 const NANO_COLOR: Color = Color::rgb(1.0, 0.8, 0.8);
-const GERM_COLOR: Color = Color::rgb(0.05, 0.75, 0.05);
 const TEXT_COLOR: Color = Color::rgb(1.0, 1.0, 1.0);
 
-const PLAYER_BULLET_DAMAGE: f32 = 30.0;
+const PLAYER_BULLET_DAMAGE: f32 = 12.0;
 const PLAYER_BULLET_EFFECT_RISK: i32 = 10;
 /// Damage dealt when two cells with different types collide.
-const CELL_INTERCOLLISION_DAMAGE: f32 = 20.0;
+const CELL_INTERCOLLISION_DAMAGE: f32 = 8.0;
 
 const SIDE_EFFECT_DURATION: f32 = 16.0;
 
@@ -77,7 +76,7 @@ enum TopText {
 
 #[derive(Component)]
 struct Cell {
-    target_scale: f32,
+    target_radius: f32,
     cell_type: CellType,
     /// How much patient hp will be recovered/lost when this cell reaches the end.
     patient_hp: i32,
@@ -203,15 +202,17 @@ struct Physics {
     velocity: Vec2,
     acceleration: Vec2,
     elasticity: f32,
+    radius: f32,
 }
 
 #[derive(Resource)]
 struct Spawner {
     timer: Timer,
     circle_mesh: Mesh2dHandle,
-    body_color: Handle<ColorMaterial>,
-    germ_color: Handle<ColorMaterial>,
     nano_color: Handle<ColorMaterial>,
+    player_texture: Handle<Image>,
+    blood_texture: Handle<Image>,
+    germ_texture: Handle<Image>,
 }
 
 #[derive(Resource)]
@@ -249,16 +250,15 @@ fn setup(
     commands.spawn(Camera2dBundle::default());
 
     let circle_mesh: Mesh2dHandle = meshes.add(shape::Circle::default().into()).into();
-    let body_color = materials.add(ColorMaterial::from(F0_COLOR));
-    let germ_color = materials.add(ColorMaterial::from(GERM_COLOR));
     let nano_color = materials.add(ColorMaterial::from(NANO_COLOR));
 
     commands.insert_resource(Spawner {
         timer: Timer::from_seconds(10.0, TimerMode::Repeating),
         circle_mesh,
-        body_color,
-        germ_color,
         nano_color,
+        player_texture: asset_server.load("graphics/player.png"),
+        blood_texture: asset_server.load("graphics/bloodcell.png"),
+        germ_texture: asset_server.load("graphics/germ.png"),
     });
 
     let label_style = TextStyle {
@@ -425,17 +425,16 @@ fn start_game(
 
     // PLAYER
     commands.spawn((
-        MaterialMesh2dBundle {
-            mesh: spawner.circle_mesh.clone(),
-            material: spawner.nano_color.clone(),
-            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 10.0))
-                .with_scale(Vec3::new(30.0, 30.0, 1.0)),
+        SpriteBundle {
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 10.0)),
+            texture: spawner.player_texture.clone(),
             ..default()
         },
         Physics {
             velocity: Vec2::ZERO,
             acceleration: Vec2::ZERO,
             elasticity: 0.5,
+            radius: 15.0,
         },
         Player {
             shoot_timer: Timer::from_seconds(0.25, TimerMode::Once),
@@ -482,9 +481,8 @@ fn player_movement(
 
     physics.acceleration = acceleration;
 
-    let radius = transform.scale.x / 2.0;
-    let top_bound = boundaries.top - radius;
-    let bottom_bound = boundaries.bottom + radius;
+    let top_bound = boundaries.top - physics.radius;
+    let bottom_bound = boundaries.bottom + physics.radius;
 
     if transform.translation.y < bottom_bound {
         transform.translation.y = bottom_bound;
@@ -522,6 +520,7 @@ fn player_shoot(
                 velocity: vec2(0.0, 600.0),
                 acceleration: vec2(0.0, 0.0),
                 elasticity: 0.9,
+                radius: 4.0,
             },
             PlayerBullet,
         ));
@@ -576,7 +575,7 @@ fn player_collisions(
             &mut physics,
         ) {
             if let CellType::Body { patient_hp: _ } = cell.cell_type {
-                cell.target_scale -= CELL_INTERCOLLISION_DAMAGE;
+                cell.target_radius -= CELL_INTERCOLLISION_DAMAGE;
             }
         }
     }
@@ -590,15 +589,15 @@ fn player_bullet_collisions(
     mut cell_query: Query<(&Transform, &mut Physics, &mut Cell)>,
 ) {
     for (bullet_entity, bullet_transform, _bullet) in &bullet_query {
-        let bullet_size = bullet_transform.scale.x;
+        let bullet_radius: f32 = 4.0;
         for (cell_transform, mut cell_physics, mut cell) in &mut cell_query {
             let dp = cell_transform.translation - bullet_transform.translation;
             let dist = (dp.x * dp.x) + (dp.y * dp.y);
-            let total_radius = (bullet_size + cell_transform.scale.y) / 2.0;
+            let total_radius = bullet_radius + cell_physics.radius;
             let rad2 = total_radius * total_radius;
             if dist <= rad2 {
                 commands.entity(bullet_entity).despawn();
-                cell.target_scale -= PLAYER_BULLET_DAMAGE;
+                cell.target_radius -= PLAYER_BULLET_DAMAGE;
                 cell_physics.velocity.y += 200.0;
                 cell_physics.acceleration.y -= 50.0;
 
@@ -623,14 +622,14 @@ fn elastic_collision(
     p2: &mut Physics,
 ) -> bool {
     let diff: Vec2 = (t1.translation - t2.translation).truncate();
-    let total_radius = (t1.scale.x + t2.scale.x) / 2.0;
+    let total_radius = p1.radius + p2.radius;
     if diff.length_squared() > total_radius * total_radius {
         return false;
     }
 
     // Assume densities are the same: mass is proportional to size.
-    let m1 = t1.scale.x;
-    let m2 = t2.scale.x;
+    let m1 = p1.radius;
+    let m2 = p2.radius;
 
     // Solve velocity
     let normal = diff.normalize_or_zero();
@@ -669,8 +668,8 @@ fn cell_cell_collisions(mut query: Query<(&mut Transform, &mut Physics, &mut Cel
         }
         if std::mem::discriminant(&c1.cell_type) != std::mem::discriminant(&c2.cell_type) {
             // Cells have different types
-            c1.target_scale -= CELL_INTERCOLLISION_DAMAGE;
-            c2.target_scale -= CELL_INTERCOLLISION_DAMAGE;
+            c1.target_radius -= CELL_INTERCOLLISION_DAMAGE;
+            c2.target_radius -= CELL_INTERCOLLISION_DAMAGE;
         }
     }
 }
@@ -718,7 +717,7 @@ fn physics_objects(
         transform.translation.x += physics.velocity.x * velocity_mul;
         transform.translation.y += physics.velocity.y * velocity_mul;
 
-        let radius = transform.scale.x / 2.0;
+        let radius = physics.radius;
         if transform.translation.x - radius < boundaries.left_wall {
             transform.translation.x = boundaries.left_wall + radius;
             physics.velocity.x *= -physics.elasticity;
@@ -732,23 +731,23 @@ fn physics_objects(
 fn cell_despawner(
     mut commands: Commands,
     boundaries: Res<Boundaries>,
-    mut query: Query<(Entity, &mut Transform, &mut Cell)>,
+    mut query: Query<(Entity, &mut Transform, &mut Physics, &mut Cell)>,
     mut scoreboard: ResMut<Scoreboard>,
 ) {
-    for (entity, mut transform, mut cell) in &mut query {
-        let scale_diff = cell.target_scale - transform.scale.x;
-        let scale_speed = TIME_STEP * 500.0;
+    for (entity, mut transform, mut physics, mut cell) in &mut query {
+        let scale_diff = cell.target_radius - physics.radius;
+        let scale_speed = TIME_STEP * 200.0;
         if scale_diff.abs() > scale_speed {
-            transform.scale.x += scale_diff.signum() * scale_speed;
+            physics.radius += scale_diff.signum() * scale_speed;
         } else {
-            transform.scale.x = cell.target_scale;
+            physics.radius = cell.target_radius;
         }
-        transform.scale.y = transform.scale.x;
-        let radius = transform.scale.x / 2.0;
-        if radius < 15.0 {
-            cell.target_scale = 0.0;
+        transform.scale.x = physics.radius / 45.0;
+        transform.scale.y = physics.radius / 45.0;
+        if physics.radius < 16.0 {
+            cell.target_radius = 0.0;
         }
-        if radius < 5.0 {
+        if physics.radius < 5.0 {
             commands.entity(entity).despawn();
             match cell.cell_type {
                 CellType::Body { patient_hp } => {
@@ -758,7 +757,7 @@ fn cell_despawner(
                     scoreboard.score += 1;
                 }
             }
-        } else if transform.translation.y + radius < boundaries.bottom {
+        } else if transform.translation.y + physics.radius < boundaries.bottom {
             commands.entity(entity).despawn();
             scoreboard.patient_hp += cell.patient_hp;
             scoreboard.patient_hp = scoreboard.patient_hp.min(100);
@@ -806,49 +805,47 @@ fn spawner_system(
     let count = rng.gen_range(2..=4);
     for i in 0..count {
         let radius = 45.0;
-        let scale = radius * 2.0;
         let min_x = boundaries.left_wall + radius;
-        let range_x = range_x - scale;
-        let (cell, velocity, material) = if rng.gen_bool(0.5) {
+        let range_x = range_x - radius * 2.0;
+        let (cell, velocity, texture) = if rng.gen_bool(0.5) {
             (
                 Cell {
                     cell_type: CellType::Body { patient_hp: 10 },
-                    target_scale: scale,
+                    target_radius: radius,
                     patient_hp: 1,
                 },
                 vec2(0.0, -100.0 - rng.gen_range(0.0..100.0)),
-                spawner.body_color.clone(),
+                spawner.blood_texture.clone(),
             )
         } else {
             (
                 Cell {
                     cell_type: CellType::Germ,
-                    target_scale: scale,
+                    target_radius: radius,
                     patient_hp: -5,
                 },
                 vec2(
                     rng.gen_range(-50.0..50.0),
                     -000.0 - rng.gen_range(0.0..100.0),
                 ),
-                spawner.germ_color.clone(),
+                spawner.germ_texture.clone(),
             )
         };
         commands.spawn((
-            MaterialMesh2dBundle {
-                mesh: spawner.circle_mesh.clone(),
-                material,
+            SpriteBundle {
                 transform: Transform::from_translation(Vec3::new(
                     rng.gen_range(0.0..range_x) + min_x,
-                    boundaries.top + radius + scale * i as f32,
+                    boundaries.top + radius + radius * 2.0 * i as f32,
                     1.0,
-                ))
-                .with_scale(Vec3::new(scale, scale, scale)),
+                )),
+                texture,
                 ..default()
             },
             Physics {
                 velocity,
                 acceleration: vec2(0.0, -25.0),
                 elasticity: 0.9,
+                radius,
             },
             cell,
         ));
