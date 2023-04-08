@@ -414,6 +414,22 @@ fn start_game(
         ));
     }
 
+    for i in 0..2 {
+        let y: f32 = if i > 0 { 1080.0 } else { -360.0 };
+        let transform = Transform {
+            translation: vec3(0.0, y, 0.0),
+            ..default()
+        };
+        commands.spawn((
+            SpriteBundle {
+                transform,
+                texture: spawner.vein_bg_texture.clone(),
+                ..default()
+            },
+            Scroller,
+        ));
+    }
+
     // PLAYER
     commands.spawn((
         SpriteBundle {
@@ -861,7 +877,7 @@ fn side_effect_system(
         commands.spawn((
             SpriteBundle {
                 sprite: Sprite {
-                    color: Color::rgb(0.25, 0.25, 0.75),
+                    color: Color::rgba(0.125, 0.5, 0.5, 0.125),
                     ..default()
                 },
                 transform: Transform {
