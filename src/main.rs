@@ -85,14 +85,11 @@ struct Cell {
 enum CellType {
     /// This is a cell belonging to the patient's body.
     Body {
-        /// How much hp the player will gain by eating this cell.
-        player_hp: i32,
+        /// How much hp the patient will lose when this cell is destroyed.
+        patient_hp: i32,
     },
     /// Enemy cell
-    Germ {
-        /// How much damage this will deal to the player
-        damage: i32,
-    },
+    Germ,
 }
 
 #[derive(Component)]
@@ -572,32 +569,20 @@ fn update_side_effect_text(side_effects: Res<SideEffects>, mut query: Query<(&mu
 
 /// Player-Cell collisions.
 fn player_collisions(
-    mut commands: Commands,
-    mut scoreboard: ResMut<Scoreboard>,
-    mut player_query: Query<&Transform, With<Player>>,
-    cell_query: Query<(Entity, &Transform, &Cell)>,
+    mut player_query: Query<(&mut Transform, &mut Physics), With<Player>>,
+    mut cell_query: Query<(&mut Transform, &mut Physics, &mut Cell), Without<Player>>,
 ) {
-    let player_transform = player_query.single_mut();
-    let player_size = player_transform.scale.y;
+    let (mut player_transform, mut player_physics) = player_query.single_mut();
 
-    for (entity, transform, cell) in &cell_query {
-        let dp = transform.translation - player_transform.translation;
-        let dist = (dp.x * dp.x) + (dp.y * dp.y);
-        let total_radius = (player_size + transform.scale.y) / 2.0;
-        let rad2 = total_radius * total_radius;
-        if dist <= rad2 {
-            commands.entity(entity).despawn();
-
-            match cell.cell_type {
-                CellType::Body { player_hp } => {
-                    scoreboard.player_hp += player_hp;
-                    scoreboard.player_hp = scoreboard.player_hp.min(100);
-                    scoreboard.patient_hp -= player_hp;
-                }
-                CellType::Germ { damage } => {
-                    scoreboard.player_hp -= damage;
-                    scoreboard.score += 1;
-                }
+    for (mut transform, mut physics, mut cell) in &mut cell_query {
+        if elastic_collision(
+            &mut player_transform,
+            &mut player_physics,
+            &mut transform,
+            &mut physics,
+        ) {
+            if let CellType::Body { patient_hp: _ } = cell.cell_type {
+                cell.target_scale -= CELL_INTERCOLLISION_DAMAGE;
             }
         }
     }
@@ -623,7 +608,7 @@ fn player_bullet_collisions(
                 cell_physics.velocity.y += 200.0;
                 cell_physics.acceleration.y -= 50.0;
 
-                if let CellType::Germ { damage: _ } = cell.cell_type {
+                if let CellType::Germ = cell.cell_type {
                     scoreboard.score += 1;
                 }
             }
@@ -637,45 +622,57 @@ fn vec_along(a: Vec2, b: Vec2) -> (Vec2, Vec2) {
     (along, not_along)
 }
 
+fn elastic_collision(
+    t1: &mut Transform,
+    p1: &mut Physics,
+    t2: &mut Transform,
+    p2: &mut Physics,
+) -> bool {
+    let diff: Vec2 = (t1.translation - t2.translation).truncate();
+    let total_radius = (t1.scale.x + t2.scale.x) / 2.0;
+    if diff.length_squared() > total_radius * total_radius {
+        return false;
+    }
+
+    // Assume densities are the same: mass is proportional to size.
+    let m1 = t1.scale.x;
+    let m2 = t2.scale.x;
+
+    // Solve velocity
+    let normal = diff.normalize_or_zero();
+    let (v1, w1) = vec_along(p1.velocity, normal);
+    let (v2, w2) = vec_along(p2.velocity, normal);
+    // v1i + v1f = v2i + v2f
+    // v1f = v2i + v2f - v1i
+    // Conversation of momentum
+    // m1 v1i + m2 v2i = m1 v1f + m2 v2f
+    // m1 v1i + m2 v2i = m1 (v2i + v2f - v1i) + m2 v2f
+    // m1 (v1i - v2i + v1i) + m2 v2i = m1 v2f + m2 v2f
+    // v2f = (m1 (v1i - v2i + v1i) + m2 v2i) / (m1 + m2)
+    let v2f = (m1 * (v1 + v1 - v2) + m2 * v2) / (m1 + m2);
+    let v1f = v2 + v2f - v1;
+    p1.velocity = v1f + w1;
+    p2.velocity = v2f + w2;
+
+    // Solve position
+    let push_length = (diff.length() - total_radius) * 0.6;
+    let push_x = normal.x * push_length;
+    let push_y = normal.y * push_length;
+    t1.translation.x -= push_x;
+    t1.translation.y -= push_y;
+    t2.translation.x += push_x;
+    t2.translation.y += push_y;
+
+    true
+}
+
 fn cell_cell_collisions(mut query: Query<(&mut Transform, &mut Physics, &mut Cell)>) {
     let mut combinations = query.iter_combinations_mut();
     while let Some([(mut t1, mut p1, mut c1), (mut t2, mut p2, mut c2)]) = combinations.fetch_next()
     {
-        let diff: Vec2 = (t1.translation - t2.translation).truncate();
-        let total_radius = (t1.scale.x + t2.scale.x) / 2.0;
-        if diff.length_squared() > total_radius * total_radius {
+        if !elastic_collision(&mut t1, &mut p1, &mut t2, &mut p2) {
             continue;
         }
-
-        // Assume densities are the same: mass is proportional to size.
-        let m1 = t1.scale.x;
-        let m2 = t2.scale.x;
-
-        // Solve velocity
-        let normal = diff.normalize_or_zero();
-        let (v1, w1) = vec_along(p1.velocity, normal);
-        let (v2, w2) = vec_along(p2.velocity, normal);
-        // v1i + v1f = v2i + v2f
-        // v1f = v2i + v2f - v1i
-        // Conversation of momentum
-        // m1 v1i + m2 v2i = m1 v1f + m2 v2f
-        // m1 v1i + m2 v2i = m1 (v2i + v2f - v1i) + m2 v2f
-        // m1 (v1i - v2i + v1i) + m2 v2i = m1 v2f + m2 v2f
-        // v2f = (m1 (v1i - v2i + v1i) + m2 v2i) / (m1 + m2)
-        let v2f = (m1 * (v1 + v1 - v2) + m2 * v2) / (m1 + m2);
-        let v1f = v2 + v2f - v1;
-        p1.velocity = v1f + w1;
-        p2.velocity = v2f + w2;
-
-        // Solve position
-        let push_length = (diff.length() - total_radius) * 0.6;
-        let push_x = normal.x * push_length;
-        let push_y = normal.y * push_length;
-        t1.translation.x -= push_x;
-        t1.translation.y -= push_y;
-        t2.translation.x += push_x;
-        t2.translation.y += push_y;
-
         if std::mem::discriminant(&c1.cell_type) != std::mem::discriminant(&c2.cell_type) {
             // Cells have different types
             c1.target_scale -= CELL_INTERCOLLISION_DAMAGE;
@@ -760,11 +757,10 @@ fn cell_despawner(
         if radius < 5.0 {
             commands.entity(entity).despawn();
             match cell.cell_type {
-                CellType::Body { player_hp } => {
-                    // Doesn't give player hp when shot
-                    scoreboard.patient_hp -= player_hp;
+                CellType::Body { patient_hp } => {
+                    scoreboard.patient_hp -= patient_hp;
                 }
-                CellType::Germ { damage: _ } => {
+                CellType::Germ => {
                     scoreboard.score += 1;
                 }
             }
@@ -816,7 +812,7 @@ fn spawner_system(
         let (cell, velocity, material) = if rng.gen_bool(0.5) {
             (
                 Cell {
-                    cell_type: CellType::Body { player_hp: 10 },
+                    cell_type: CellType::Body { patient_hp: 10 },
                     target_scale: scale,
                     patient_hp: 1,
                 },
@@ -826,7 +822,7 @@ fn spawner_system(
         } else {
             (
                 Cell {
-                    cell_type: CellType::Germ { damage: 5 },
+                    cell_type: CellType::Germ,
                     target_scale: scale,
                     patient_hp: -5,
                 },
