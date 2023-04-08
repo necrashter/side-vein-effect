@@ -251,7 +251,7 @@ fn setup(
     let nano_color = materials.add(ColorMaterial::from(NANO_COLOR));
 
     commands.insert_resource(Spawner {
-        timer: Timer::from_seconds(1.0, TimerMode::Repeating),
+        timer: Timer::from_seconds(10.0, TimerMode::Repeating),
         circle_mesh,
         body_color,
         germ_color,
@@ -798,9 +798,10 @@ fn spawner_system(
     mut spawner: ResMut<Spawner>,
     cell_query: Query<&Cell>,
 ) {
-    if !(spawner.timer.tick(time.delta()).just_finished() && cell_query.is_empty()) {
+    if !(cell_query.is_empty() || spawner.timer.tick(time.delta()).just_finished()) {
         return;
     }
+    spawner.timer.reset();
     let mut rng = rand::thread_rng();
     let range_x = boundaries.right_wall - boundaries.left_wall;
     let count = rng.gen_range(2..=4);
