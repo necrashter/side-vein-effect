@@ -19,7 +19,7 @@ const PLAYER_BULLET_EFFECT_RISK: i32 = 10;
 /// Damage dealt when two cells with different types collide.
 const CELL_INTERCOLLISION_DAMAGE: f32 = 20.0;
 
-const SIDE_EFFECT_DURATION: f32 = 5.0;
+const SIDE_EFFECT_DURATION: f32 = 16.0;
 
 fn main() {
     App::new()
@@ -50,7 +50,8 @@ fn main() {
             )
                 .in_schedule(CoreSchedule::FixedUpdate),
         )
-        .add_system(update_scoreboard)
+        .add_system(update_scoreboard.run_if(in_state(GameState::Running)))
+        .add_system(update_side_effect_text.run_if(in_state(GameState::Running)))
         .run();
 }
 
@@ -118,7 +119,8 @@ enum SideEffectType {
 
 impl SideEffectType {
     fn random() -> SideEffectType {
-        match rand::random::<u32>() % 2 {
+        let mut rng = rand::thread_rng();
+        match rng.gen_range(0..2) {
             0 => SideEffectType::SlowerMovement,
             1 => SideEffectType::FasterMovement,
             _ => unreachable!(),
@@ -178,8 +180,8 @@ impl Default for SideEffects {
             right_effect: SideEffectType::None,
             left_effect_x: -100.0,
             right_effect_x: 100.0,
-    left_timer: Timer::from_seconds(SIDE_EFFECT_DURATION, TimerMode::Repeating),
-    right_timer: Timer::from_seconds(SIDE_EFFECT_DURATION, TimerMode::Repeating),
+            left_timer: Timer::from_seconds(SIDE_EFFECT_DURATION, TimerMode::Repeating),
+            right_timer: Timer::from_seconds(SIDE_EFFECT_DURATION, TimerMode::Repeating),
         }
     }
 }
@@ -523,6 +525,23 @@ fn update_scoreboard(
     }
 }
 
+fn update_side_effect_text(side_effects: Res<SideEffects>, mut query: Query<(&mut Text, &SideFx)>) {
+    for (mut text, fx) in &mut query {
+        text.sections[0].value = match fx {
+            SideFx::Left => format!(
+                "{}\n{:.0} seconds",
+                side_effects.left_effect.name(),
+                side_effects.left_timer.remaining_secs().ceil()
+            ),
+            SideFx::Right => format!(
+                "{}\n{:.0} seconds",
+                side_effects.right_effect.name(),
+                side_effects.right_timer.remaining_secs().ceil()
+            ),
+        }
+    }
+}
+
 /// Player-Cell collisions.
 fn player_collisions(
     mut commands: Commands,
@@ -807,42 +826,46 @@ fn side_effect_system(
     mut side_effects: ResMut<SideEffects>,
     query: Query<(Entity, &SideFx)>,
 ) {
-    let spawn_side_effect = |commands: &mut Commands, fx_component: SideFx, effect_x: f32, wall_x: f32, effect: &SideEffectType| {
+    let spawn_side_effect = |commands: &mut Commands,
+                             fx_component: SideFx,
+                             effect_x: f32,
+                             wall_x: f32,
+                             effect: &SideEffectType| {
         let translation = vec2((effect_x + wall_x) / 2.0, 0.0);
         let size = vec2((effect_x - wall_x).abs(), 720.0);
         commands.spawn((
-                SpriteBundle {
-            sprite: Sprite {
-                color: Color::rgb(0.25, 0.25, 0.75),
+            SpriteBundle {
+                sprite: Sprite {
+                    color: Color::rgb(0.25, 0.25, 0.75),
+                    ..default()
+                },
+                transform: Transform {
+                    translation: translation.extend(0.5),
+                    scale: size.extend(1.0),
+                    ..default()
+                },
                 ..default()
             },
-            transform: Transform {
-                translation: translation.extend(0.5),
-                scale: size.extend(1.0),
-                ..default()
-            },
-            ..default()
-        },
-        fx_component,
+            fx_component,
         ));
         commands.spawn((
-                Text2dBundle {
-            text: Text {
-                sections: vec![TextSection::new(
-                    effect.name().to_owned(),
-                    in_game_text.text_style.clone(),
-                )],
-                alignment: TextAlignment::Center,
-                ..Default::default()
-            },
-            text_2d_bounds: bevy::text::Text2dBounds { size },
-            transform: Transform {
-                translation: translation.extend(0.625),
+            Text2dBundle {
+                text: Text {
+                    sections: vec![TextSection::new(
+                        effect.name().to_owned(),
+                        in_game_text.text_style.clone(),
+                    )],
+                    alignment: TextAlignment::Center,
+                    ..Default::default()
+                },
+                text_2d_bounds: bevy::text::Text2dBounds { size },
+                transform: Transform {
+                    translation: translation.extend(0.625),
+                    ..default()
+                },
                 ..default()
             },
-            ..default()
-        },
-        fx_component,
+            fx_component,
         ));
     };
     if side_effects.left_effect != SideEffectType::None {
