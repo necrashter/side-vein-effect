@@ -25,12 +25,11 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_state::<GameState>()
-        .insert_resource(Scoreboard::default())
         .insert_resource(Boundaries::default())
-        .insert_resource(SideEffects::default())
         .insert_resource(ClearColor(B0_COLOR))
         .insert_resource(FixedTime::new_from_secs(TIME_STEP))
         .add_startup_system(setup)
+        .add_system(start_game.in_schedule(OnEnter(GameState::Running)))
         .add_systems(
             (
                 spawner_system.run_if(in_state(GameState::Running)),
@@ -52,6 +51,7 @@ fn main() {
         )
         .add_system(update_scoreboard.run_if(in_state(GameState::Running)))
         .add_system(update_side_effect_text.run_if(in_state(GameState::Running)))
+        .add_system(game_over_system.run_if(in_state(GameState::Ended)))
         .run();
 }
 
@@ -155,8 +155,8 @@ impl Default for Scoreboard {
 }
 
 #[derive(Resource)]
-struct InGameText {
-    text_style: TextStyle,
+struct TextStyles {
+    in_game: TextStyle,
 }
 
 #[derive(Resource)]
@@ -236,10 +236,8 @@ impl Default for Boundaries {
     }
 }
 
-// Add the game's entities to our world
 fn setup(
     mut commands: Commands,
-    mut boundaries: ResMut<Boundaries>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     asset_server: Res<AssetServer>,
@@ -257,54 +255,8 @@ fn setup(
         circle_mesh,
         body_color,
         germ_color,
-        nano_color: nano_color.clone(),
+        nano_color,
     });
-
-    for i in 0..2 {
-        let on_right = i > 0;
-        let x_mul: f32 = if on_right { 1.0 } else { -1.0 };
-        let transform = Transform {
-            translation: vec3(x_mul * 640.0, 0.0, 0.0),
-            scale: vec3(640.0, 720.0, 1.0),
-            ..default()
-        };
-        if on_right {
-            boundaries.right_wall = transform.translation.x - (transform.scale.x / 2.0);
-        } else {
-            boundaries.left_wall = transform.translation.x + (transform.scale.x / 2.0);
-        }
-        let offset = transform.scale.x / 2.0 * x_mul;
-        commands.spawn((
-            SpriteBundle {
-                transform,
-                sprite: Sprite {
-                    color: F0_COLOR,
-                    ..default()
-                },
-                ..default()
-            },
-            Wall { on_right, offset },
-        ));
-    }
-
-    // PLAYER
-    commands.spawn((
-        MaterialMesh2dBundle {
-            mesh: meshes.add(shape::Circle::default().into()).into(),
-            material: nano_color,
-            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 10.0))
-                .with_scale(Vec3::new(30.0, 30.0, 1.0)),
-            ..default()
-        },
-        Physics {
-            velocity: Vec2::ZERO,
-            acceleration: Vec2::ZERO,
-            elasticity: 0.5,
-        },
-        Player {
-            shoot_timer: Timer::from_seconds(0.25, TimerMode::Once),
-        },
-    ));
 
     let label_style = TextStyle {
         font: asset_server.load("fonts/Kanit-Regular.ttf"),
@@ -317,8 +269,8 @@ fn setup(
         color: TEXT_COLOR,
     };
 
-    commands.insert_resource(InGameText {
-        text_style: TextStyle {
+    commands.insert_resource(TextStyles {
+        in_game: TextStyle {
             font: asset_server.load("fonts/Kanit-Regular.ttf"),
             font_size: 42.0,
             color: TEXT_COLOR,
@@ -424,6 +376,71 @@ fn setup(
         .with_children(|builder| {
             builder.spawn((TextBundle::from_section("", number_style.clone()), TopText));
         });
+}
+
+/// Add the game's entities
+fn start_game(
+    mut commands: Commands,
+    mut boundaries: ResMut<Boundaries>,
+    spawner: Res<Spawner>,
+    query: Query<Entity, Or<(With<Physics>, With<SideFx>)>>,
+    mut top_text_query: Query<&mut Text, With<TopText>>,
+) {
+    for entity in &query {
+        commands.entity(entity).despawn();
+    }
+
+    let mut top_text = top_text_query.single_mut();
+    top_text.sections[0].value = "".to_owned();
+
+    for i in 0..2 {
+        let on_right = i > 0;
+        let x_mul: f32 = if on_right { 1.0 } else { -1.0 };
+        let transform = Transform {
+            translation: vec3(x_mul * 640.0, 0.0, 0.0),
+            scale: vec3(640.0, 720.0, 1.0),
+            ..default()
+        };
+        if on_right {
+            boundaries.right_wall = transform.translation.x - (transform.scale.x / 2.0);
+        } else {
+            boundaries.left_wall = transform.translation.x + (transform.scale.x / 2.0);
+        }
+        let offset = transform.scale.x / 2.0 * x_mul;
+        commands.spawn((
+            SpriteBundle {
+                transform,
+                sprite: Sprite {
+                    color: F0_COLOR,
+                    ..default()
+                },
+                ..default()
+            },
+            Wall { on_right, offset },
+        ));
+    }
+
+    // PLAYER
+    commands.spawn((
+        MaterialMesh2dBundle {
+            mesh: spawner.circle_mesh.clone(),
+            material: spawner.nano_color.clone(),
+            transform: Transform::from_translation(Vec3::new(0.0, 0.0, 10.0))
+                .with_scale(Vec3::new(30.0, 30.0, 1.0)),
+            ..default()
+        },
+        Physics {
+            velocity: Vec2::ZERO,
+            acceleration: Vec2::ZERO,
+            elasticity: 0.5,
+        },
+        Player {
+            shoot_timer: Timer::from_seconds(0.25, TimerMode::Once),
+        },
+    ));
+
+    commands.insert_resource(Scoreboard::default());
+    commands.insert_resource(SideEffects::default());
 }
 
 fn wall_system(boundaries: Res<Boundaries>, mut query: Query<(&mut Transform, &Wall)>) {
@@ -668,6 +685,15 @@ fn game_over_check(
     }
 }
 
+fn game_over_system(
+    keyboard_input: Res<Input<KeyCode>>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::R) {
+        next_state.set(GameState::Running);
+    }
+}
+
 /// Update physics objects.
 fn physics_objects(
     boundaries: Res<Boundaries>,
@@ -822,7 +848,7 @@ fn side_effect_system(
     mut commands: Commands,
     time: Res<Time>,
     boundaries: Res<Boundaries>,
-    in_game_text: Res<InGameText>,
+    text_styles: Res<TextStyles>,
     mut side_effects: ResMut<SideEffects>,
     query: Query<(Entity, &SideFx)>,
 ) {
@@ -853,7 +879,7 @@ fn side_effect_system(
                 text: Text {
                     sections: vec![TextSection::new(
                         effect.name().to_owned(),
-                        in_game_text.text_style.clone(),
+                        text_styles.in_game.clone(),
                     )],
                     alignment: TextAlignment::Center,
                     ..Default::default()
