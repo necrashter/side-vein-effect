@@ -69,7 +69,10 @@ struct Player {
 }
 
 #[derive(Component)]
-struct TopText;
+enum TopText {
+    Header,
+    Sub,
+}
 
 #[derive(Component)]
 struct Cell {
@@ -374,7 +377,14 @@ fn setup(
             ..Default::default()
         })
         .with_children(|builder| {
-            builder.spawn((TextBundle::from_section("", number_style.clone()), TopText));
+            builder.spawn((
+                TextBundle::from_section("", number_style.clone()),
+                TopText::Header,
+            ));
+            builder.spawn((
+                TextBundle::from_section("", label_style.clone()),
+                TopText::Sub,
+            ));
         });
 }
 
@@ -390,8 +400,9 @@ fn start_game(
         commands.entity(entity).despawn();
     }
 
-    let mut top_text = top_text_query.single_mut();
-    top_text.sections[0].value = "".to_owned();
+    for mut text in &mut top_text_query {
+        text.sections[0].value = "".to_owned();
+    }
 
     for i in 0..2 {
         let on_right = i > 0;
@@ -675,12 +686,16 @@ fn cell_cell_collisions(mut query: Query<(&mut Transform, &mut Physics, &mut Cel
 
 fn game_over_check(
     scoreboard: Res<Scoreboard>,
-    mut top_text_query: Query<&mut Text, With<TopText>>,
+    mut query: Query<(&mut Text, &TopText)>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     if scoreboard.patient_hp <= 0 || scoreboard.player_hp <= 0 {
-        let mut top_text = top_text_query.single_mut();
-        top_text.sections[0].value = "GAME OVER".to_owned();
+        for (mut text, text_type) in &mut query {
+            text.sections[0].value = match text_type {
+                TopText::Header => "GAME OVER".to_owned(),
+                TopText::Sub => "PRESS R TO RESTART".to_owned(),
+            };
+        }
         next_state.set(GameState::Ended);
     }
 }
