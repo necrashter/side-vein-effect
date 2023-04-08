@@ -643,7 +643,7 @@ fn elastic_collision(
     let (v2, w2) = vec_along(p2.velocity, normal);
     // v1i + v1f = v2i + v2f
     // v1f = v2i + v2f - v1i
-    // Conversation of momentum
+    // Conservation of momentum
     // m1 v1i + m2 v2i = m1 v1f + m2 v2f
     // m1 v1i + m2 v2i = m1 (v2i + v2f - v1i) + m2 v2f
     // m1 (v1i - v2i + v1i) + m2 v2i = m1 v2f + m2 v2f
