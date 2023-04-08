@@ -25,6 +25,7 @@ fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_state::<GameState>()
+        .add_event::<SideEffectUpdateEvent>()
         .insert_resource(Boundaries::default())
         .insert_resource(ClearColor(B0_COLOR))
         .insert_resource(FixedTime::new_from_secs(TIME_STEP))
@@ -142,6 +143,11 @@ impl SideEffectType {
             SideEffectType::FasterMovement => "Faster movement",
         }
     }
+}
+
+enum SideEffectUpdateEvent {
+    Left { risk: i32 },
+    Right { risk: i32 },
 }
 
 impl Default for Scoreboard {
@@ -542,10 +548,10 @@ fn update_scoreboard(
     for (mut text, text_type) in &mut query {
         text.sections[0].value = match text_type {
             ScoreboardText::Score => scoreboard.score.to_string(),
-            ScoreboardText::PlayerHp => scoreboard.player_hp.to_string(),
-            ScoreboardText::PatientHp => scoreboard.patient_hp.to_string(),
-            ScoreboardText::LeftEffectRisk => side_effects.left_effect_risk.to_string(),
-            ScoreboardText::RightEffectRisk => side_effects.right_effect_risk.to_string(),
+            ScoreboardText::PlayerHp => format!("{}%", scoreboard.player_hp),
+            ScoreboardText::PatientHp => format!("{}%", scoreboard.patient_hp),
+            ScoreboardText::LeftEffectRisk => format!("{}%", side_effects.left_effect_risk),
+            ScoreboardText::RightEffectRisk => format!("{}%", side_effects.right_effect_risk),
         }
     }
 }
@@ -777,14 +783,19 @@ fn player_bullet_despawner(
     boundaries: Res<Boundaries>,
     query: Query<(Entity, &Transform, &PlayerBullet)>,
     mut side_effects: ResMut<SideEffects>,
+    mut side_effect_events: EventWriter<SideEffectUpdateEvent>,
 ) {
     for (entity, transform, _) in &query {
         // Allow some buffer space (cells can momentarily go outside screen)
-        if transform.translation.y > boundaries.top + 360.0 {
+        if transform.translation.y > boundaries.top + 120.0 {
             commands.entity(entity).despawn();
             if transform.translation.x > 0.0 {
+                let risk = side_effects.right_effect_risk;
+                side_effect_events.send(SideEffectUpdateEvent::Right { risk });
                 side_effects.right_effect_risk += PLAYER_BULLET_EFFECT_RISK;
             } else {
+                let risk = side_effects.left_effect_risk;
+                side_effect_events.send(SideEffectUpdateEvent::Left { risk });
                 side_effects.left_effect_risk += PLAYER_BULLET_EFFECT_RISK;
             }
         }
@@ -863,6 +874,7 @@ fn side_effect_system(
     text_styles: Res<TextStyles>,
     mut side_effects: ResMut<SideEffects>,
     query: Query<(Entity, &SideFx)>,
+    mut side_effect_events: EventReader<SideEffectUpdateEvent>,
 ) {
     let spawn_side_effect = |commands: &mut Commands,
                              fx_component: SideFx,
@@ -906,6 +918,15 @@ fn side_effect_system(
             fx_component,
         ));
     };
+    let mut left_risk: Option<i32> = None;
+    let mut right_risk: Option<i32> = None;
+    for event in side_effect_events.iter() {
+        match *event {
+            SideEffectUpdateEvent::Left { risk } => left_risk = Some(risk),
+            SideEffectUpdateEvent::Right { risk } => right_risk = Some(risk),
+        }
+    }
+    let mut rng = rand::thread_rng();
     if side_effects.left_effect != SideEffectType::None {
         if side_effects.left_timer.tick(time.delta()).just_finished() {
             side_effects.left_timer.reset();
@@ -915,17 +936,24 @@ fn side_effect_system(
                     commands.entity(entity).despawn();
                 }
             }
+            if side_effects.left_effect_risk >= 100 {
+                left_risk = Some(100);
+            }
         }
-    } else if side_effects.left_effect_risk > 100 {
-        side_effects.left_effect_risk -= 100;
-        side_effects.left_effect = SideEffectType::random();
-        spawn_side_effect(
-            &mut commands,
-            SideFx::Left,
-            side_effects.left_effect_x,
-            boundaries.left_wall,
-            &side_effects.left_effect,
-        );
+    }
+    if let Some(risk) = left_risk {
+        if rng.gen_range(0..100) < risk {
+            side_effects.left_effect_risk -= 100;
+            side_effects.left_effect_risk = side_effects.left_effect_risk.max(0);
+            side_effects.left_effect = SideEffectType::random();
+            spawn_side_effect(
+                &mut commands,
+                SideFx::Left,
+                side_effects.left_effect_x,
+                boundaries.left_wall,
+                &side_effects.left_effect,
+            );
+        }
     }
     if side_effects.right_effect != SideEffectType::None {
         if side_effects.right_timer.tick(time.delta()).just_finished() {
@@ -936,16 +964,23 @@ fn side_effect_system(
                     commands.entity(entity).despawn();
                 }
             }
+            if side_effects.right_effect_risk >= 100 {
+                right_risk = Some(100);
+            }
         }
-    } else if side_effects.right_effect_risk > 100 {
-        side_effects.right_effect_risk -= 100;
-        side_effects.right_effect = SideEffectType::random();
-        spawn_side_effect(
-            &mut commands,
-            SideFx::Right,
-            side_effects.right_effect_x,
-            boundaries.right_wall,
-            &side_effects.right_effect,
-        );
+    }
+    if let Some(risk) = right_risk {
+        if rng.gen_range(0..100) < risk {
+            side_effects.right_effect_risk -= 100;
+            side_effects.right_effect_risk = side_effects.right_effect_risk.max(0);
+            side_effects.right_effect = SideEffectType::random();
+            spawn_side_effect(
+                &mut commands,
+                SideFx::Right,
+                side_effects.right_effect_x,
+                boundaries.right_wall,
+                &side_effects.right_effect,
+            );
+        }
     }
 }
