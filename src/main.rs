@@ -8,8 +8,7 @@ use rand::Rng;
 // Defines the amount of time that should elapse between each physics step.
 const TIME_STEP: f32 = 1.0 / 144.0;
 
-const B0_COLOR: Color = Color::rgb(0.3, 0.05, 0.025);
-const F0_COLOR: Color = Color::rgb(0.5, 0.1, 0.1);
+const BACKGROUND_COLOR: Color = Color::rgb(0.3, 0.05, 0.025);
 const NANO_COLOR: Color = Color::rgb(1.0, 0.8, 0.8);
 const TEXT_COLOR: Color = Color::rgb(1.0, 1.0, 1.0);
 
@@ -20,13 +19,15 @@ const CELL_INTERCOLLISION_DAMAGE: f32 = 8.0;
 
 const SIDE_EFFECT_DURATION: f32 = 16.0;
 
+const BACKGROUND_SCROLL_SPEED: f32 = 200.0;
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_state::<GameState>()
         .add_event::<SideEffectUpdateEvent>()
         .insert_resource(Boundaries::default())
-        .insert_resource(ClearColor(B0_COLOR))
+        .insert_resource(ClearColor(BACKGROUND_COLOR))
         .insert_resource(FixedTime::new_from_secs(TIME_STEP))
         .add_startup_system(setup)
         .add_system(start_game.in_schedule(OnEnter(GameState::Running)))
@@ -34,7 +35,7 @@ fn main() {
             (
                 spawner_system.run_if(in_state(GameState::Running)),
                 player_shoot.run_if(in_state(GameState::Running)),
-                wall_system.run_if(in_state(GameState::Running)),
+                scroller_system.run_if(in_state(GameState::Running)),
                 physics_objects.run_if(in_state(GameState::Running)),
                 cell_despawner.run_if(in_state(GameState::Running)),
                 player_bullet_despawner.run_if(in_state(GameState::Running)),
@@ -213,6 +214,8 @@ struct Spawner {
     player_texture: Handle<Image>,
     blood_texture: Handle<Image>,
     germ_texture: Handle<Image>,
+    vein_side_texture: Handle<Image>,
+    vein_bg_texture: Handle<Image>,
 }
 
 #[derive(Resource)]
@@ -224,16 +227,13 @@ struct Boundaries {
 }
 
 #[derive(Component)]
-struct Wall {
-    on_right: bool,
-    offset: f32,
-}
+struct Scroller;
 
 impl Default for Boundaries {
     fn default() -> Self {
         Boundaries {
-            left_wall: 0.0,
-            right_wall: 0.0,
+            left_wall: -320.0,
+            right_wall: 320.0,
             top: 360.0,
             bottom: -360.0,
         }
@@ -259,6 +259,8 @@ fn setup(
         player_texture: asset_server.load("graphics/player.png"),
         blood_texture: asset_server.load("graphics/bloodcell.png"),
         germ_texture: asset_server.load("graphics/germ.png"),
+        vein_side_texture: asset_server.load("graphics/veinside.png"),
+        vein_bg_texture: asset_server.load("graphics/veinbg.png"),
     });
 
     let label_style = TextStyle {
@@ -383,9 +385,8 @@ fn setup(
 /// Add the game's entities
 fn start_game(
     mut commands: Commands,
-    mut boundaries: ResMut<Boundaries>,
     spawner: Res<Spawner>,
-    query: Query<Entity, Or<(With<Physics>, With<SideFx>)>>,
+    query: Query<Entity, Or<(With<Physics>, With<SideFx>, With<Scroller>)>>,
     mut top_text_query: Query<&mut Text, With<TopText>>,
 ) {
     for entity in &query {
@@ -396,30 +397,20 @@ fn start_game(
         text.sections[0].value = "".to_owned();
     }
 
-    for i in 0..2 {
-        let on_right = i > 0;
-        let x_mul: f32 = if on_right { 1.0 } else { -1.0 };
+    for i in 0..4 {
+        let x_mul: f32 = if i % 2 == 0 { 1.0 } else { -1.0 };
+        let y: f32 = if i >= 2 { 1080.0 } else { -360.0 };
         let transform = Transform {
-            translation: vec3(x_mul * 640.0, 0.0, 0.0),
-            scale: vec3(640.0, 720.0, 1.0),
+            translation: vec3(x_mul * 640.0, y, 0.0),
             ..default()
         };
-        if on_right {
-            boundaries.right_wall = transform.translation.x - (transform.scale.x / 2.0);
-        } else {
-            boundaries.left_wall = transform.translation.x + (transform.scale.x / 2.0);
-        }
-        let offset = transform.scale.x / 2.0 * x_mul;
         commands.spawn((
             SpriteBundle {
                 transform,
-                sprite: Sprite {
-                    color: F0_COLOR,
-                    ..default()
-                },
+                texture: spawner.vein_side_texture.clone(),
                 ..default()
             },
-            Wall { on_right, offset },
+            Scroller,
         ));
     }
 
@@ -445,12 +436,11 @@ fn start_game(
     commands.insert_resource(SideEffects::default());
 }
 
-fn wall_system(boundaries: Res<Boundaries>, mut query: Query<(&mut Transform, &Wall)>) {
-    for (mut transform, wall) in &mut query {
-        if wall.on_right {
-            transform.translation.x = boundaries.right_wall + wall.offset;
-        } else {
-            transform.translation.x = boundaries.left_wall + wall.offset;
+fn scroller_system(mut query: Query<(&mut Transform, &Scroller)>) {
+    for (mut transform, _wall) in &mut query {
+        transform.translation.y -= BACKGROUND_SCROLL_SPEED * TIME_STEP;
+        if transform.translation.y <= -1080.0 {
+            transform.translation.y = 1800.0;
         }
     }
 }
