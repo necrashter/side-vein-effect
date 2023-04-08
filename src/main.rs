@@ -107,7 +107,6 @@ enum SideFx {
 #[derive(Resource)]
 struct Scoreboard {
     score: usize,
-    player_hp: i32,
     patient_hp: i32,
 }
 
@@ -154,7 +153,6 @@ impl Default for Scoreboard {
     fn default() -> Self {
         Self {
             score: 0,
-            player_hp: 100,
             patient_hp: 100,
         }
     }
@@ -195,7 +193,6 @@ impl Default for SideEffects {
 #[derive(Component)]
 enum ScoreboardText {
     Score,
-    PlayerHp,
     PatientHp,
     LeftEffectRisk,
     RightEffectRisk,
@@ -308,14 +305,6 @@ fn setup(
             builder.spawn((
                 TextBundle::from_section("0", number_style.clone()),
                 ScoreboardText::LeftEffectRisk,
-            ));
-            builder.spawn(TextBundle::from_section(
-                "Nanomachine Health",
-                label_style.clone(),
-            ));
-            builder.spawn((
-                TextBundle::from_section("100", number_style.clone()),
-                ScoreboardText::PlayerHp,
             ));
             builder.spawn(TextBundle::from_section("Score", label_style.clone()));
             builder.spawn((
@@ -548,7 +537,6 @@ fn update_scoreboard(
     for (mut text, text_type) in &mut query {
         text.sections[0].value = match text_type {
             ScoreboardText::Score => scoreboard.score.to_string(),
-            ScoreboardText::PlayerHp => format!("{}%", scoreboard.player_hp),
             ScoreboardText::PatientHp => format!("{}%", scoreboard.patient_hp),
             ScoreboardText::LeftEffectRisk => format!("{}%", side_effects.left_effect_risk),
             ScoreboardText::RightEffectRisk => format!("{}%", side_effects.right_effect_risk),
@@ -692,7 +680,7 @@ fn game_over_check(
     mut query: Query<(&mut Text, &TopText)>,
     mut next_state: ResMut<NextState<GameState>>,
 ) {
-    if scoreboard.patient_hp <= 0 || scoreboard.player_hp <= 0 {
+    if scoreboard.patient_hp <= 0 {
         for (mut text, text_type) in &mut query {
             text.sections[0].value = match text_type {
                 TopText::Header => "GAME OVER".to_owned(),
