@@ -16,6 +16,8 @@ const PLAYER_BULLET_DAMAGE: f32 = 12.0;
 const PLAYER_BULLET_EFFECT_RISK: i32 = 10;
 /// Damage dealt when two cells with different types collide.
 const CELL_INTERCOLLISION_DAMAGE: f32 = 8.0;
+/// Damage dealt when player touches a cell in no shooting mode.
+const PLAYER_COLLISION_DAMAGE: f32 = 12.0;
 
 const SIDE_EFFECT_DURATION: f32 = 16.0;
 
@@ -639,7 +641,7 @@ fn player_collisions(
                     && side_effects.left_effect == SideEffectType::NoShooting)
             {
                 // Damage the cells by touching in no shooting mode
-                cell.target_radius -= CELL_INTERCOLLISION_DAMAGE;
+                cell.target_radius -= PLAYER_COLLISION_DAMAGE;
             }
         }
     }
@@ -885,6 +887,8 @@ fn spawner_system(
     let min_enemies = 2 + (scoreboard.score / 90).clamp(0, 4);
     let max_enemies = min_enemies + 3;
     let count = rng.gen_range(min_enemies..max_enemies);
+    let x_vel_randomness = 75.0 + (scoreboard.score as f32 / 2.0).clamp(5.0, 125.0);
+    let y_vel_base = -(scoreboard.score as f32 / 2.5).clamp(10.0, 200.0);
     for i in 0..count {
         let radius = 45.0;
         let min_x = boundaries.left_wall + radius;
@@ -894,7 +898,11 @@ fn spawner_system(
             boundaries.top + radius + radius * 2.0 * i as f32,
             1.0,
         );
-        let (cell, velocity, texture) = if rng.gen_bool(0.5) {
+        let velocity = vec2(
+            rng.gen_range(-x_vel_randomness..x_vel_randomness),
+            y_vel_base - rng.gen_range(0.0..100.0),
+        );
+        let (cell, texture) = if rng.gen_bool(0.5) {
             (
                 Cell {
                     top_bound: translation.y + radius,
@@ -902,7 +910,6 @@ fn spawner_system(
                     target_radius: radius,
                     patient_hp: 1,
                 },
-                vec2(0.0, -100.0 - rng.gen_range(0.0..100.0)),
                 spawner.blood_texture.clone(),
             )
         } else {
@@ -911,12 +918,8 @@ fn spawner_system(
                     top_bound: translation.y + radius,
                     cell_type: CellType::Germ,
                     target_radius: radius,
-                    patient_hp: -5,
+                    patient_hp: -10,
                 },
-                vec2(
-                    rng.gen_range(-50.0..50.0),
-                    -000.0 - rng.gen_range(0.0..100.0),
-                ),
                 spawner.germ_texture.clone(),
             )
         };
