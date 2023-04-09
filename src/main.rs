@@ -31,6 +31,8 @@ fn main() {
         .insert_resource(FixedTime::new_from_secs(TIME_STEP))
         .add_startup_system(setup)
         .add_system(start_game.in_schedule(OnEnter(GameState::Running)))
+        .add_system(change_music.in_schedule(OnEnter(GameState::Running)))
+        .add_system(change_music.in_schedule(OnEnter(GameState::Ended)))
         .add_systems(
             (
                 spawner_system.run_if(in_state(GameState::Running)),
@@ -60,7 +62,6 @@ fn main() {
 enum GameState {
     #[default]
     Running,
-    Paused,
     Ended,
 }
 
@@ -247,6 +248,13 @@ impl Default for Boundaries {
     }
 }
 
+#[derive(Resource)]
+struct MusicResource {
+    game_source: Handle<AudioSource>,
+    over_source: Handle<AudioSource>,
+    current: Option<Handle<AudioSink>>,
+}
+
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -268,6 +276,12 @@ fn setup(
         germ_texture: asset_server.load("graphics/germ.png"),
         vein_side_texture: asset_server.load("graphics/veinside.png"),
         vein_bg_texture: asset_server.load("graphics/veinbg.png"),
+    });
+
+    commands.insert_resource(MusicResource {
+        game_source: asset_server.load("music/game.ogg"),
+        over_source: asset_server.load("music/over.ogg"),
+        current: None,
     });
 
     let label_style = TextStyle {
@@ -457,6 +471,26 @@ fn start_game(
 
     commands.insert_resource(Scoreboard::default());
     commands.insert_resource(SideEffects::default());
+}
+
+fn change_music(
+    mut music_res: ResMut<MusicResource>,
+    audio: Res<Audio>,
+    audio_sinks: Res<Assets<AudioSink>>,
+    game_state: Res<State<GameState>>,
+) {
+    if let Some(music) = music_res.current.take() {
+        if let Some(music) = audio_sinks.get(&music) {
+            music.stop();
+        }
+    }
+    let new_music = match game_state.0 {
+        GameState::Running => music_res.game_source.clone(),
+        GameState::Ended => music_res.over_source.clone(),
+    };
+    let sink = audio.play_with_settings(new_music, PlaybackSettings::LOOP);
+    let sink = audio_sinks.get_handle(sink);
+    music_res.current = Some(sink);
 }
 
 fn scroller_system(mut query: Query<(&mut Transform, &Scroller)>) {
