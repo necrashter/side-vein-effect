@@ -930,7 +930,8 @@ fn cell_despawner(
             }
         } else if transform.translation.y + physics.radius < boundaries.bottom {
             commands.entity(entity).despawn();
-            scoreboard.patient_hp += cell.patient_hp;
+            scoreboard.patient_hp +=
+                (cell.patient_hp as f32 * ((physics.radius + 5.0) / 50.0)).ceil() as i32;
             scoreboard.patient_hp = scoreboard.patient_hp.min(100);
         } else {
             // Don't let cells go outside the screen from the top
