@@ -144,8 +144,8 @@ impl SideEffectType {
             SideEffectType::None => "None",
             SideEffectType::SlowerMovement => "Slower movement",
             SideEffectType::FasterMovement => "Faster movement",
-            SideEffectType::NoShooting => "No shooting",
-            SideEffectType::NoKnockback => "No knockback",
+            SideEffectType::NoShooting => "No shooting\nTouch to kill",
+            SideEffectType::NoKnockback => "No bullet knockback",
         }
     }
 }
@@ -587,6 +587,7 @@ fn update_side_effect_text(side_effects: Res<SideEffects>, mut query: Query<(&mu
 fn player_collisions(
     mut player_query: Query<(&mut Transform, &mut Physics), With<Player>>,
     mut cell_query: Query<(&mut Transform, &mut Physics, &mut Cell), Without<Player>>,
+    side_effects: Res<SideEffects>,
 ) {
     let (mut player_transform, mut player_physics) = player_query.single_mut();
 
@@ -597,7 +598,12 @@ fn player_collisions(
             &mut transform,
             &mut physics,
         ) {
-            if let CellType::Body { patient_hp: _ } = cell.cell_type {
+            if (player_transform.translation.x > side_effects.right_effect_x
+                && side_effects.right_effect == SideEffectType::NoShooting)
+                || (player_transform.translation.x < side_effects.left_effect_x
+                    && side_effects.left_effect == SideEffectType::NoShooting)
+            {
+                // Damage the cells by touching in no shooting mode
                 cell.target_radius -= CELL_INTERCOLLISION_DAMAGE;
             }
         }
