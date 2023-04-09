@@ -32,6 +32,7 @@ fn main() {
         .insert_resource(ClearColor(BACKGROUND_COLOR))
         .insert_resource(FixedTime::new_from_secs(TIME_STEP))
         .add_startup_system(setup)
+        .add_system(setup_game.in_schedule(OnEnter(GameState::Init)))
         .add_system(start_game.in_schedule(OnEnter(GameState::Running)))
         .add_system(change_music.in_schedule(OnEnter(GameState::Running)))
         .add_system(change_music.in_schedule(OnEnter(GameState::Ended)))
@@ -57,12 +58,14 @@ fn main() {
         .add_system(update_scoreboard.run_if(in_state(GameState::Running)))
         .add_system(update_side_effect_text.run_if(in_state(GameState::Running)))
         .add_system(game_over_system.run_if(in_state(GameState::Ended)))
+        .add_system(welcome_system.run_if(in_state(GameState::Init)))
         .run();
 }
 
 #[derive(Debug, Clone, Copy, Default, Eq, PartialEq, Hash, States)]
 enum GameState {
     #[default]
+    Init,
     Running,
     Ended,
 }
@@ -72,11 +75,14 @@ struct Player {
     shoot_timer: Timer,
 }
 
-#[derive(Component)]
+#[derive(Component, PartialEq, Eq)]
 enum TopText {
     Header,
     Sub,
 }
+
+#[derive(Component)]
+struct WelcomeText;
 
 #[derive(Component)]
 struct Cell {
@@ -171,6 +177,7 @@ impl Default for Scoreboard {
 #[derive(Resource)]
 struct TextStyles {
     in_game: TextStyle,
+    label_style: TextStyle,
 }
 
 #[derive(Resource)]
@@ -303,6 +310,7 @@ fn setup(
             font_size: 42.0,
             color: TEXT_COLOR,
         },
+        label_style: label_style.clone(),
     });
 
     commands
@@ -406,18 +414,23 @@ fn setup(
 }
 
 /// Add the game's entities
-fn start_game(
+fn setup_game(
     mut commands: Commands,
     spawner: Res<Spawner>,
     query: Query<Entity, Or<(With<Physics>, With<SideFx>, With<Scroller>)>>,
-    mut top_text_query: Query<&mut Text, With<TopText>>,
+    mut top_text_query: Query<(&mut Text, &TopText)>,
+    text_styles: Res<TextStyles>,
 ) {
     for entity in &query {
         commands.entity(entity).despawn();
     }
 
-    for mut text in &mut top_text_query {
-        text.sections[0].value = "".to_owned();
+    for (mut text, top_text) in &mut top_text_query {
+        if *top_text == TopText::Sub {
+            text.sections[0].value = "Press ENTER to start.".to_owned();
+        } else {
+            text.sections[0].value = "Side Vein Effect".to_owned();
+        }
     }
 
     for i in 0..4 {
@@ -471,8 +484,79 @@ fn start_game(
         },
     ));
 
+    commands
+        .spawn((
+            NodeBundle {
+                style: Style {
+                    position_type: PositionType::Absolute,
+                    position: UiRect {
+                        top: Val::Percent(60.0),
+                        bottom: Val::Percent(100.0),
+                        left: Val::Px(0.0),
+                        right: Val::Px(0.0),
+                    },
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::Center,
+                    padding: UiRect {
+                        left: Val::Px(8.0),
+                        top: Val::Px(8.0),
+                        right: Val::Px(8.0),
+                        bottom: Val::Px(8.0),
+                    },
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            WelcomeText,
+        ))
+        .with_children(|builder| {
+            builder.spawn((
+                TextBundle::from_section("CONTROLS", text_styles.label_style.clone()),
+                WelcomeText,
+            ));
+            builder.spawn((
+                TextBundle::from_section("Arrow keys: Move", text_styles.label_style.clone()),
+                WelcomeText,
+            ));
+            builder.spawn((
+                TextBundle::from_section("Space or A: Shoot", text_styles.label_style.clone()),
+                WelcomeText,
+            ));
+            builder.spawn((
+                TextBundle::from_section("GAMEPLAY", text_styles.label_style.clone()),
+                WelcomeText,
+            ));
+            builder.spawn((
+                TextBundle::from_section(
+                    "Let the blood cells (red cells) pass. Shoot germs (green cells).",
+                    text_styles.label_style.clone(),
+                ),
+                WelcomeText,
+            ));
+            builder.spawn((
+                TextBundle::from_section(
+                    "If you miss shots, side-effect risk will increase.",
+                    text_styles.label_style.clone(),
+                ),
+                WelcomeText,
+            ));
+        });
+
     commands.insert_resource(Scoreboard::default());
     commands.insert_resource(SideEffects::default());
+}
+
+fn start_game(
+    mut commands: Commands,
+    query: Query<Entity, With<WelcomeText>>,
+    mut top_text_query: Query<&mut Text, With<TopText>>,
+) {
+    for entity in &query {
+        commands.entity(entity).despawn();
+    }
+    for mut text in &mut top_text_query {
+        text.sections[0].value = "".to_owned();
+    }
 }
 
 fn change_music(
@@ -489,6 +573,9 @@ fn change_music(
     let new_music = match game_state.0 {
         GameState::Running => music_res.game_source.clone(),
         GameState::Ended => music_res.over_source.clone(),
+        _ => {
+            return;
+        }
     };
     let sink = audio.play_with_settings(new_music, PlaybackSettings::LOOP);
     let sink = audio_sinks.get_handle(sink);
@@ -553,7 +640,9 @@ fn player_shoot(
     side_effects: Res<SideEffects>,
 ) {
     let (transform, mut player) = query.single_mut();
-    if !(player.shoot_timer.tick(time.delta()).finished() && keyboard_input.pressed(KeyCode::A)) {
+    if !(player.shoot_timer.tick(time.delta()).finished()
+        && (keyboard_input.pressed(KeyCode::A) || keyboard_input.pressed(KeyCode::Space)))
+    {
         return;
     }
     if transform.translation.x > side_effects.right_effect_x
@@ -768,6 +857,15 @@ fn game_over_system(
     mut next_state: ResMut<NextState<GameState>>,
 ) {
     if keyboard_input.just_pressed(KeyCode::R) {
+        next_state.set(GameState::Init);
+    }
+}
+
+fn welcome_system(
+    keyboard_input: Res<Input<KeyCode>>,
+    mut next_state: ResMut<NextState<GameState>>,
+) {
+    if keyboard_input.just_pressed(KeyCode::Return) {
         next_state.set(GameState::Running);
     }
 }
