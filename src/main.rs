@@ -462,8 +462,8 @@ fn start_game(
 fn scroller_system(mut query: Query<(&mut Transform, &Scroller)>) {
     for (mut transform, _wall) in &mut query {
         transform.translation.y -= BACKGROUND_SCROLL_SPEED * TIME_STEP;
-        if transform.translation.y <= -1080.0 {
-            transform.translation.y = 1800.0;
+        if transform.translation.y <= -1260.0 {
+            transform.translation.y = 1620.0;
         }
     }
 }
