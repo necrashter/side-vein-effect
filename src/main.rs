@@ -79,6 +79,7 @@ enum TopText {
 struct Cell {
     target_radius: f32,
     cell_type: CellType,
+    top_bound: f32,
     /// How much patient hp will be recovered/lost when this cell reaches the end.
     patient_hp: i32,
 }
@@ -772,7 +773,7 @@ fn cell_despawner(
 ) {
     for (entity, mut transform, mut physics, mut cell) in &mut query {
         let scale_diff = cell.target_radius - physics.radius;
-        let scale_speed = TIME_STEP * 200.0;
+        let scale_speed = TIME_STEP * 100.0;
         if scale_diff.abs() > scale_speed {
             physics.radius += scale_diff.signum() * scale_speed;
         } else {
@@ -797,6 +798,14 @@ fn cell_despawner(
             commands.entity(entity).despawn();
             scoreboard.patient_hp += cell.patient_hp;
             scoreboard.patient_hp = scoreboard.patient_hp.min(100);
+        } else {
+            // Don't let cells go outside the screen from the top
+            if transform.translation.y + physics.radius > cell.top_bound {
+                transform.translation.y = cell.top_bound - physics.radius;
+            }
+            cell.top_bound = boundaries
+                .top
+                .max(transform.translation.y + physics.radius - TIME_STEP * 100.0);
         }
     }
 }
@@ -843,9 +852,15 @@ fn spawner_system(
         let radius = 45.0;
         let min_x = boundaries.left_wall + radius;
         let range_x = range_x - radius * 2.0;
+        let translation = Vec3::new(
+            rng.gen_range(0.0..range_x) + min_x,
+            boundaries.top + radius + radius * 2.0 * i as f32,
+            1.0,
+        );
         let (cell, velocity, texture) = if rng.gen_bool(0.5) {
             (
                 Cell {
+                    top_bound: translation.y + radius,
                     cell_type: CellType::Body { patient_hp: 10 },
                     target_radius: radius,
                     patient_hp: 1,
@@ -856,6 +871,7 @@ fn spawner_system(
         } else {
             (
                 Cell {
+                    top_bound: translation.y + radius,
                     cell_type: CellType::Germ,
                     target_radius: radius,
                     patient_hp: -5,
@@ -869,11 +885,7 @@ fn spawner_system(
         };
         commands.spawn((
             SpriteBundle {
-                transform: Transform::from_translation(Vec3::new(
-                    rng.gen_range(0.0..range_x) + min_x,
-                    boundaries.top + radius + radius * 2.0 * i as f32,
-                    1.0,
-                )),
+                transform: Transform::from_translation(translation),
                 texture,
                 ..default()
             },
