@@ -840,6 +840,7 @@ fn spawner_system(
     boundaries: Res<Boundaries>,
     mut spawner: ResMut<Spawner>,
     cell_query: Query<&Cell>,
+    scoreboard: Res<Scoreboard>,
 ) {
     if !(cell_query.is_empty() || spawner.timer.tick(time.delta()).just_finished()) {
         return;
@@ -847,7 +848,9 @@ fn spawner_system(
     spawner.timer.reset();
     let mut rng = rand::thread_rng();
     let range_x = boundaries.right_wall - boundaries.left_wall;
-    let count = rng.gen_range(2..=4);
+    let min_enemies = 2 + (scoreboard.score / 90).clamp(0, 4);
+    let max_enemies = min_enemies + 3;
+    let count = rng.gen_range(min_enemies..max_enemies);
     for i in 0..count {
         let radius = 45.0;
         let min_x = boundaries.left_wall + radius;
