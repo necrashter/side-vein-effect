@@ -115,14 +115,18 @@ enum SideEffectType {
     None,
     SlowerMovement,
     FasterMovement,
+    NoShooting,
+    NoKnockback,
 }
 
 impl SideEffectType {
     fn random() -> SideEffectType {
         let mut rng = rand::thread_rng();
-        match rng.gen_range(0..2) {
+        match rng.gen_range(0..4) {
             0 => SideEffectType::SlowerMovement,
             1 => SideEffectType::FasterMovement,
+            2 => SideEffectType::NoShooting,
+            3 => SideEffectType::NoKnockback,
             _ => unreachable!(),
         }
     }
@@ -140,6 +144,8 @@ impl SideEffectType {
             SideEffectType::None => "None",
             SideEffectType::SlowerMovement => "Slower movement",
             SideEffectType::FasterMovement => "Faster movement",
+            SideEffectType::NoShooting => "No shooting",
+            SideEffectType::NoKnockback => "No knockback",
         }
     }
 }
@@ -507,31 +513,42 @@ fn player_shoot(
     time: Res<Time>,
     mut query: Query<(&Transform, &mut Player)>,
     spawner: Res<Spawner>,
+    side_effects: Res<SideEffects>,
 ) {
     let (transform, mut player) = query.single_mut();
-    if player.shoot_timer.tick(time.delta()).finished() && keyboard_input.pressed(KeyCode::A) {
-        commands.spawn((
-            MaterialMesh2dBundle {
-                mesh: spawner.circle_mesh.clone(),
-                material: spawner.nano_color.clone(),
-                transform: Transform::from_translation(Vec3::new(
-                    transform.translation.x,
-                    transform.translation.y,
-                    1.0,
-                ))
-                .with_scale(Vec3::new(8.0, 8.0, 8.0)),
-                ..default()
-            },
-            Physics {
-                velocity: vec2(0.0, 600.0),
-                acceleration: vec2(0.0, 0.0),
-                elasticity: 0.9,
-                radius: 4.0,
-            },
-            PlayerBullet,
-        ));
-        player.shoot_timer.reset();
+    if !(player.shoot_timer.tick(time.delta()).finished() && keyboard_input.pressed(KeyCode::A)) {
+        return;
     }
+    if transform.translation.x > side_effects.right_effect_x
+        && side_effects.right_effect == SideEffectType::NoShooting
+    {
+        return;
+    } else if transform.translation.x < side_effects.left_effect_x
+        && side_effects.left_effect == SideEffectType::NoShooting
+    {
+        return;
+    }
+    commands.spawn((
+        MaterialMesh2dBundle {
+            mesh: spawner.circle_mesh.clone(),
+            material: spawner.nano_color.clone(),
+            transform: Transform::from_translation(Vec3::new(
+                transform.translation.x,
+                transform.translation.y,
+                1.0,
+            ))
+            .with_scale(Vec3::new(8.0, 8.0, 8.0)),
+            ..default()
+        },
+        Physics {
+            velocity: vec2(0.0, 600.0),
+            acceleration: vec2(0.0, 0.0),
+            elasticity: 0.9,
+            radius: 4.0,
+        },
+        PlayerBullet,
+    ));
+    player.shoot_timer.reset();
 }
 
 fn update_scoreboard(
@@ -593,6 +610,7 @@ fn player_bullet_collisions(
     mut scoreboard: ResMut<Scoreboard>,
     bullet_query: Query<(Entity, &Transform, &PlayerBullet)>,
     mut cell_query: Query<(&Transform, &mut Physics, &mut Cell)>,
+    side_effects: Res<SideEffects>,
 ) {
     for (bullet_entity, bullet_transform, _bullet) in &bullet_query {
         let bullet_radius: f32 = 4.0;
@@ -604,8 +622,14 @@ fn player_bullet_collisions(
             if dist <= rad2 {
                 commands.entity(bullet_entity).despawn();
                 cell.target_radius -= PLAYER_BULLET_DAMAGE;
-                cell_physics.velocity.y += 200.0;
-                cell_physics.acceleration.y -= 50.0;
+                if !((bullet_transform.translation.x > side_effects.right_effect_x
+                    && side_effects.right_effect == SideEffectType::NoKnockback)
+                    || (bullet_transform.translation.x < side_effects.left_effect_x
+                        && side_effects.left_effect == SideEffectType::NoKnockback))
+                {
+                    cell_physics.velocity.y += 200.0;
+                    cell_physics.acceleration.y -= 50.0;
+                }
 
                 if let CellType::Germ = cell.cell_type {
                     scoreboard.score += 1;
