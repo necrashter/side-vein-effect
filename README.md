@@ -24,7 +24,7 @@ Build:
 
 ```sh
 cargo build --release --target wasm32-unknown-unknown
-wasm-bindgen --no-typescript --out-name game --out-dir web --target web target/wasm32-unknown-unknown/release/side-effect.wasm
+wasm-bindgen --no-typescript --out-name game --out-dir web --target web target/wasm32-unknown-unknown/release/side-vein-effect.wasm
 cp -r assets/ web/
 ```
 
