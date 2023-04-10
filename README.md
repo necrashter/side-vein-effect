@@ -1,16 +1,37 @@
 # Side Vein Effect
 
-Bevy Jam 3 entry.
+A video game developed during [Bevy Jam 3](https://itch.io/jam/bevy-jam-3).
 
 You play as a nanomachine drug in a patient's bloodstream.
 You need to shoot the germs and protect the blood cells.
 If you miss the germs, it will create side-effects on the sides of the vein.
 
-## Cloning and Running Localy
+## Clone the repository
 
-This repository uses `git-lfs`.
+This repository uses Git-LFS to store the game assets. Make sure that Git-LFS is installed on your system.
+You can use the following commands to clone the repository and pull the files stored by Git-LFS:
+```sh
+git clone https://github.com/necrashter/side-vein-effect
+cd side-vein-effect
+git lfs install
+git lfs pull
+git fetch
+```
 
-TODO
+## Run Localy
+
+It can be built and run like a regular Bevy game:
+```sh
+# Run in debug mode:
+cargo run
+
+# Run in debug mode but compile using dynamic linking.
+# This makes subsequent builds faster.
+cargo run --features bevy/dynamic_linking
+
+# Run in release mode with all optimizations.
+cargo run --release
+```
 
 ## Deploy to Web
 
