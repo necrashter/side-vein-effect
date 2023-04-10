@@ -1,1 +1,6 @@
 /target
+
+# Web build
+web/assets
+web/game.js
+web/game_bg.wasm
