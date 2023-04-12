@@ -68,3 +68,14 @@ Now navigate to http://0.0.0.0:8000/ with your web browser.
 More resources for deploying to web:
 - [release.yaml in `bevy_github_ci_template`](https://github.com/bevyengine/bevy_github_ci_template/blob/main/.github/workflows/release.yaml)
 - [Unofficial Bevy Cheat Book](https://bevy-cheatbook.github.io/platforms/wasm.html)
+
+
+# License
+
+The following resources are from third-parties:
+- `assets/fonts/Kanit-Regular.ttf` is licensed under Open Font License.
+- Files under `web/` are from [`bevy_github_ci_template`](https://github.com/bevyengine/bevy_github_ci_template), licensed under the same license as Bevy.
+
+The remaining files are my own original work:
+- All code (everything in `src/`, `Cargo.toml`) are under [MIT License](LICENSE).
+- All assets (everything in `assets/graphics` and `assets/music`) are under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
