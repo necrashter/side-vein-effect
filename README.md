@@ -6,6 +6,12 @@ You play as a nanomachine drug in a patient's bloodstream.
 You need to shoot the germs and protect the blood cells.
 If you miss the germs, it will create side-effects on the sides of the vein.
 
+![Cover Image](assets/graphics/cover.png)
+
+## [Play on itch.io](https://necrashter.itch.io/side-vein-effect)
+
+[Click to play on itch.io](https://necrashter.itch.io/side-vein-effect).
+
 ## Clone the repository
 
 This repository uses Git-LFS to store the game assets. Make sure that Git-LFS is installed on your system.
